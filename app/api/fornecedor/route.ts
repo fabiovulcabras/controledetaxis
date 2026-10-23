@@ -4,7 +4,8 @@ import { despacharSaidas } from "@/lib/whatsapp/transporte";
 import {
   linkWhatsApp, msgAceitaSolicitante, msgNaoRealizadaSolicitante, msgNovaCorridaFornecedor, msgRecusaPlanejamento, msgRecusaSolicitante, urlApp, type LinkWhatsApp,
 } from "@/lib/whatsapp/link";
-import { corridaPorTokenFornecedor, dentroDoLimite, muitasTentativas, primeiroTelefonePlanejamento, repoServidor, tokenValido } from "@/lib/links-api";
+import { corridaPorTokenFornecedor, dentroDoLimite, ipDe, muitasTentativas, primeiroTelefonePlanejamento, repoServidor, tokenValido } from "@/lib/links-api";
+import { aparelhoDoFornecedor, cookieDoFornecedor } from "@/lib/acesso-fornecedor";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS } from "@/lib/status";
 import { brl, formatarDataHora, lerValor } from "@/lib/datas";
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
     const repo = repoServidor();
     const [sol, forn] = await Promise.all([repo.solicitante(c.solicitante_id), c.fornecedor_id ? repo.fornecedor(c.fornecedor_id) : null]);
     return Response.json({
+      autorizado: await aparelhoDoFornecedor(req, c.fornecedor_id),
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status].rotulo, fornecedor: forn?.nome ?? null,
       quando: c.tipo === "imediata" ? `Agora (pedido às ${formatarDataHora(c.criado_em).slice(6)})` : formatarDataHora(c.data_hora_prevista),
       tipo: c.tipo, origem: c.origem, destino: c.destino, passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? null,
@@ -47,13 +49,30 @@ export async function POST(req: Request) {
   try {
     const c = await corridaPorTokenFornecedor(corpo.token);
     if (!c) return erroJson(LINK_ANTIGO, 404);
+    const acao = String(corpo.acao ?? "");
+
+    // Identificação do aparelho pelo código de acesso de 6 dígitos (enviado só pelo planejamento ao fornecedor)
+    if (acao === "entrar") {
+      if (!(await dentroDoLimite(`fornecedor-codigo:${ipDe(req)}`, 8, 900)) || !(await dentroDoLimite(`fornecedor-codigo:${corpo.token}`, 8, 900))) {
+        return erroJson("Muitas tentativas. Aguarde 15 minutos ou peça o código ao planejamento.", 429);
+      }
+      const codigo = String(corpo.codigo ?? "").replace(/\D/g, "");
+      if (!c.fornecedor_id || codigo.length !== 6) return erroJson("Digite os 6 números do código de acesso.");
+      const { data: f, error } = await supabaseAdmin().from("fornecedores").select("token_portal,codigo_acesso").eq("id", c.fornecedor_id).maybeSingle();
+      if (error) throw new Error(error.message.includes("codigo_acesso") ? "O banco ainda não tem o código de acesso. Rode supabase/004_acesso_fornecedor.sql no Supabase." : error.message);
+      if (!f || f.codigo_acesso !== codigo) return erroJson("Código incorreto. Confira com o planejamento.", 403);
+      return Response.json({ ok: true }, { headers: { "Set-Cookie": cookieDoFornecedor(req, f.token_portal) } });
+    }
+    if (!(await aparelhoDoFornecedor(req, c.fornecedor_id))) {
+      return erroJson("Só o fornecedor pode responder esta corrida. Abra pelo seu portal ou digite o código de acesso.", 403);
+    }
+
     const repo = repoServidor();
     const base = urlApp(req);
     const [sol, forn] = await Promise.all([repo.solicitante(c.solicitante_id), c.fornecedor_id ? repo.fornecedor(c.fornecedor_id) : null]);
     const nomeForn = forn?.nome ?? "o fornecedor";
     const links: LinkWhatsApp[] = [];
     const saidas: Saida[] = [];
-    const acao = String(corpo.acao ?? "");
     const situacao = () => erroJson(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}". Atualize a página.`, 409);
 
     if (acao === "aceitar") {

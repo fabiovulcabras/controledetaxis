@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { cookieDoFornecedor } from "@/lib/acesso-fornecedor";
 import { dentroDoLimite, muitasTentativas, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS, type StatusCorrida } from "@/lib/status";
@@ -27,13 +28,14 @@ export async function GET(req: Request) {
       valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em,
     });
     const lista = corridas ?? [];
+    // Abrir o portal identifica este aparelho como do fornecedor: os links /f/… passam a permitir responder
     return Response.json({
       fornecedor: forn.nome,
       responder: lista.filter((c: any) => ["enviada", "sem_resposta"].includes(c.status)).map(item),
       em_curso: lista.filter((c: any) => ["aceita", "em_andamento"].includes(c.status)).map(item),
       encerradas: lista.filter((c: any) => !["enviada", "sem_resposta", "aceita", "em_andamento", "solicitada"].includes(c.status)).slice(0, 40).map(item),
       total_periodo: brl(lista.filter((c: any) => ["concluida", "validada", "contestada"].includes(c.status)).reduce((s: number, c: any) => s + Number(c.valor_informado ?? 0), 0)),
-    });
+    }, { headers: { "Set-Cookie": cookieDoFornecedor(req, token) } });
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);
   }

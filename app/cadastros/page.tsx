@@ -124,13 +124,13 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
 }
 
 /** Link fixo do portal do fornecedor: todas as corridas dele, sem depender de cada mensagem. */
-function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome: string; telefone_whatsapp: string; token_portal?: string | null }; recarregar: () => Promise<void> }) {
+function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome: string; telefone_whatsapp: string; token_portal?: string | null; codigo_acesso?: string | null }; recarregar: () => Promise<void> }) {
   const { confirmar } = useRetorno();
   const [aberto, setAberto] = useState(false);
   const [msg, setMsg] = useState("");
   const base = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${base}/fornecedor/${fornecedor.token_portal}`;
-  const texto = `Olá, ${fornecedor.nome}! Este é o seu portal de corridas: ${url}\nPor ele você vê as corridas para responder, as em andamento e as encerradas. Salve nos favoritos.`;
+  const texto = `Olá, ${fornecedor.nome}! Este é o seu portal de corridas: ${url}\nPor ele você vê as corridas para responder, as em andamento e as encerradas. Salve nos favoritos.${fornecedor.codigo_acesso ? `\n\nSeu código de acesso: *${fornecedor.codigo_acesso}*. Se abrir uma corrida pelo link da mensagem e a página pedir, digite este código (só uma vez por celular). Não compartilhe.` : ""}`;
   const copiar = async () => {
     try { await navigator.clipboard.writeText(url); setMsg("Link copiado."); } catch { setMsg("Não foi possível copiar; selecione o link e copie."); }
   };
@@ -152,7 +152,7 @@ function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome
             ) : (
             <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
               <legend>Link fixo</legend>
-              <p className="secao-ajuda">Quem tiver o link vê e responde as corridas deste fornecedor.</p>
+              <p className="secao-ajuda">Quem tiver o link vê e responde as corridas deste fornecedor.{fornecedor.codigo_acesso && <> Código de acesso: <strong className="protocolo">{fornecedor.codigo_acesso}</strong>.</>}</p>
               <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link do portal" />
               <a className="botao-whatsapp" href={linkWhatsApp(fornecedor.telefone_whatsapp, texto)} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(fornecedor.telefone_whatsapp)} pelo WhatsApp</a>
               <div className="row">

@@ -10,7 +10,7 @@ type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
   origem: string; destino: string; passageiros: number; outros_passageiros: string | null; solicitante: string; prazo: string | null;
   motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string;
-  prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null;
+  prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null; autorizado?: boolean;
 };
 type Link = { rotulo: string; url: string };
 type Tela = null | "aceitar" | "recusar" | "valor" | "nao_realizada";
@@ -26,6 +26,7 @@ export default function RespostaFornecedor() {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
   const [links, setLinks] = useState<Link[]>([]);
+  const [codigo, setCodigo] = useState("");
 
   const carregar = async () => {
     const r = await fetch(`/api/fornecedor?token=${token}`, { cache: "no-store" });
@@ -45,13 +46,23 @@ export default function RespostaFornecedor() {
     await carregar();
     window.scrollTo(0, 0);
   };
+  const entrar = async (e: React.FormEvent) => {
+    e.preventDefault(); setOcupado(true); setErr(""); setOk("");
+    const r = await fetch("/api/fornecedor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, acao: "entrar", codigo }) });
+    const j = await r.json().catch(() => ({}));
+    setOcupado(false);
+    if (!r.ok) { setErr(j.erro ?? "Não foi possível conferir o código."); return; }
+    setCodigo(""); setOk("Aparelho identificado. Agora você pode responder as corridas por aqui.");
+    await carregar();
+  };
   const campo = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
   if (erroLink) return <Moldura><section className="card"><h2>Link indisponível</h2><p className="err">{erroLink}</p></section></Moldura>;
   if (!c) return <Moldura><p className="empty">Carregando…</p></Moldura>;
 
-  const aguardando = ["enviada", "sem_resposta"].includes(c.status);
-  const emCurso = ["aceita", "em_andamento"].includes(c.status);
+  const pendente = ["enviada", "sem_resposta", "aceita", "em_andamento"].includes(c.status);
+  const aguardando = !!c.autorizado && ["enviada", "sem_resposta"].includes(c.status);
+  const emCurso = !!c.autorizado && ["aceita", "em_andamento"].includes(c.status);
 
   return (
     <Moldura subtitulo={c.fornecedor ?? undefined}>
@@ -79,6 +90,18 @@ export default function RespostaFornecedor() {
           {c.motivo_cancelamento && <><dt>Cancelamento</dt><dd>{c.motivo_cancelamento}</dd></>}
         </dl>
       </section>
+
+      {!c.autorizado && pendente && (
+        <form className="card" onSubmit={entrar}>
+          <h3 style={{ marginTop: 0 }}>Responder é só para o fornecedor</h3>
+          <p className="pagina-sub">Para aceitar, recusar ou informar o valor, abra esta corrida pelo <strong>seu portal de corridas</strong> ou digite o <strong>código de acesso</strong> que o planejamento enviou a você. Basta fazer isso uma vez neste celular.</p>
+          <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+            <Campo rotulo="Código de acesso (6 números)"><input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))} placeholder="000000" /></Campo>
+            <button className="pri botao-grande" disabled={ocupado || codigo.length !== 6}>{ocupado ? "Conferindo…" : "Entrar"}</button>
+          </div>
+          <p className="texto-fraco" style={{ marginTop: 12, fontSize: 13 }}>Pediu este táxi? Acompanhe ou cancele pelo seu link de pedido.</p>
+        </form>
+      )}
 
       {aguardando && !tela && (
         <div className="escolha-dupla">
