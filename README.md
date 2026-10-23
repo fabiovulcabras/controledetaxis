@@ -25,6 +25,7 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 | Conciliação | planejamento | Importa a fatura (CSV ou Excel .xlsx), aceita todos os conciliados de uma vez, cruza com os protocolos, aceita/contesta itens, aponta corridas não faturadas, exporta a contestação |
 | Pedido por link (`/pedir/…`) | pessoa autorizada, sem login | Pedido de táxi pelo celular, acompanhamento e cancelamento |
 | Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
+| Portais dos fornecedores | planejamento | Link fixo do portal de cada fornecedor: enviar pelo WhatsApp, copiar, abrir ou gerar novo |
 | Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
 | Simulador do bot | planejamento | Três celulares (pessoa autorizada, fornecedor, planejamento) conversando com o mesmo motor do WhatsApp real |
 | Cadastros | admin | Pessoas autorizadas, fornecedores, centros de custo, unidades, parâmetros e usuários do painel |

@@ -19,6 +19,7 @@ const NAV: [string, string, NivelMenu][] = [
   ["/corridas", "Corridas", "todos"],
   ["/relatorios", "Relatórios", "todos"],
   ["/conciliacao", "Conciliação", "planejamento"],
+  ["/portais", "Portais dos fornecedores", "planejamento"],
   ["/simulador", "Simulador do bot", "planejamento"],
   ["/cadastros", "Cadastros", "admin"],
 ];
