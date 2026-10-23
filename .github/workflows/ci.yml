@@ -24,7 +24,7 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Cliente psql
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - name: Schema e cenários de teste
@@ -37,10 +37,10 @@ jobs:
       NEXT_PUBLIC_SUPABASE_URL: https://exemplo.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: chave-de-exemplo
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
       - name: Dependências
         run: if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
       - name: Testes do bot

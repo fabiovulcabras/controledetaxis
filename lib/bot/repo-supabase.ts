@@ -42,12 +42,14 @@ export class RepoSupabase implements Repo {
     return (data ?? []) as CentroCusto[];
   }
   async parametro(chave: string) {
-    if (!this.cacheParametros) {
+    let params = this.cacheParametros;
+    if (!params) {
       const { data, error } = await this.db.from("parametros").select("chave,valor");
       falhar("Ler parâmetros", error);
-      this.cacheParametros = Object.fromEntries((data ?? []).map((p: any) => [p.chave, p.valor]));
+      params = Object.fromEntries((data ?? []).map((p: any) => [p.chave, p.valor])) as Record<string, string>;
+      this.cacheParametros = params;
     }
-    return this.cacheParametros[chave] ?? null;
+    return params[chave] ?? null;
   }
 
   async conversa(t: string) {
