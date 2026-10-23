@@ -1,4 +1,4 @@
--- Dados de exemplo para testar o painel e o Simulador. Opcional: rode depois do schema.sql.
+-- Dados de exemplo para testar o painel. Opcional: rode depois do schema.sql.
 -- Os telefones são fictícios (55119000000xx) e servem só para o modo simulado.
 insert into unidades (id, nome, endereco_padrao) values
   ('a1000000-0000-0000-0000-000000000001', 'Unidade Centro', 'R. das Indústrias, 450 - Centro');

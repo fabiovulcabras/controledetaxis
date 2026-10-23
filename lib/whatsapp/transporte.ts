@@ -6,7 +6,7 @@ import { enviarEmailsPlanejamento } from "../email";
 
 export type Canal = "whatsapp" | "simulado";
 
-/** Modo de envio: "meta" exige WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID; sem eles, tudo vai para o Simulador. */
+/** Modo de envio: "meta" exige WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID; sem eles, as mensagens só ficam gravadas no histórico. */
 export const modoEnvio = (): Canal =>
   process.env.WHATSAPP_MODO === "meta" && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID ? "whatsapp" : "simulado";
 
@@ -28,7 +28,7 @@ export async function vincularEntrada(db: SupabaseClient, mensagemId: string | n
 }
 
 /**
- * Destino final das mensagens geradas fora do Simulador: com a API oficial, saem pelo WhatsApp;
+ * Destino final das mensagens geradas pelo app: com a API oficial, saem pelo WhatsApp;
  * em qualquer modo, os alertas do planejamento também vão por e-mail quando configurado.
  */
 export async function despacharSaidas(db: SupabaseClient, saidas: Saida[]): Promise<void> {

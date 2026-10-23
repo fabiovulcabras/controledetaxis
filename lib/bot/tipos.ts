@@ -37,7 +37,7 @@ export type CamposCorrida = Partial<Pick<Corrida,
 
 export type Conversa = { telefone: string; etapa: string; dados: Record<string, any>; atualizado_em: string };
 
-/** Mensagem recebida, já normalizada (WhatsApp real ou Simulador). */
+/** Mensagem recebida, já normalizada (WhatsApp real). */
 export type Entrada = {
   telefone: string;
   texto?: string;

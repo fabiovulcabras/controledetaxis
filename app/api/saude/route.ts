@@ -51,7 +51,7 @@ export async function GET() {
   }
 
   const modo = modoEnvio();
-  itens.push({ ok: true, item: `Envio de WhatsApp: ${modo === "whatsapp" ? "Cloud API da Meta" : "simulado (Simulador do bot)"}` });
+  itens.push({ ok: true, item: `Envio de WhatsApp: ${modo === "whatsapp" ? "Cloud API da Meta" : "simulado (mensagens só gravadas no histórico; avisos pelos botões de WhatsApp)"}` });
   if (process.env.WHATSAPP_MODO === "meta" && modo !== "whatsapp") {
     itens.push({ ok: false, item: "WHATSAPP_MODO=meta, mas falta WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID" });
   }

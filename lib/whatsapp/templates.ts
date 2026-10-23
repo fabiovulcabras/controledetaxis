@@ -34,7 +34,7 @@ export const TEMPLATES: Record<string, DefinicaoTemplate> = {
   },
 };
 
-/** Texto do modelo com as variáveis preenchidas (para o Simulador e o histórico). */
+/** Texto do modelo com as variáveis preenchidas (para o histórico). */
 export function textoTemplate(nome: string, parametros: string[]): string {
   const def = TEMPLATES[nome];
   if (!def) return parametros.join(" · ");

@@ -27,19 +27,18 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 | Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
 | Portais dos fornecedores | planejamento | Link fixo do portal de cada fornecedor: enviar pelo WhatsApp, copiar, abrir ou gerar novo |
 | Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
-| Simulador do bot | planejamento | Três celulares (pessoa autorizada, fornecedor, planejamento) conversando com o mesmo motor do WhatsApp real |
 | Cadastros | admin | Pessoas autorizadas, fornecedores, centros de custo, unidades, parâmetros e usuários do painel |
 
 ## Instalação
 
 1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
-2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios para usar no Simulador.
+2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
 5. Crie o primeiro usuário em Authentication › Users no Supabase (ou pela tela de login, se o cadastro estiver aberto). O primeiro usuário vira **administrador**; os demais entram como **consulta** e o admin muda o perfil em Cadastros › Usuários (ou convida por lá).
 6. Em Cadastros › Parâmetros, informe `planejamento_telefones`.
 
-Sem a Meta configurada (`WHATSAPP_MODO=simulado`), tudo funciona pelo Simulador: as respostas do bot ficam gravadas como mensagens simuladas.
+Sem a Meta configurada (`WHATSAPP_MODO=simulado`), tudo funciona pelos links e botões de WhatsApp; as mensagens automáticas ficam gravadas no histórico de cada corrida.
 
 ## Hospedagem
 
@@ -95,7 +94,6 @@ A forma gratuita é o próprio Supabase: veja `supabase/agendador.sql` (pg_cron 
 ```
 app/                     telas (Next.js App Router) e rotas de API
   api/whatsapp/webhook   recebe mensagens da Meta
-  api/simulador          mesma entrada, canal simulado
   api/corridas/acao      ações do planejamento sobre uma corrida
   api/cron/prazos        agendador
   api/usuarios           convite de usuários (admin)

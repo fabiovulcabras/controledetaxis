@@ -552,31 +552,14 @@ th.num { text-align: right; }
 .filtros-corridas { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin-bottom: 12px; }
 .filtros-corridas input[type="search"] { flex: 1 1 220px; }
 
-/* Simulador */
-.simulador-barra { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 16px; }
-.telefones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.telefone { display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--slate-200); border-radius: 18px; background: #fff; padding: 8px; box-shadow: var(--shadow); }
-.telefone-topo { display: flex; align-items: center; gap: 10px; border-radius: 12px 12px 0 0; background: var(--navy); color: #fff; padding: 10px 12px; }
-.telefone-topo .avatar { display: grid; flex: 0 0 32px; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, .16); font-size: 12px; font-weight: 700; }
-.telefone-topo strong { display: block; color: #fff; font-size: 14px; }
-.telefone-topo small { color: var(--slate-300); font-size: 12px; }
-.chat { display: flex; height: 500px; flex-direction: column; gap: 6px; overflow-y: auto; border-radius: 0 0 12px 12px; background: #E9EEF4; padding: 12px 10px; }
+/* Mensagens no detalhe da corrida */
 .bolha { max-width: 88%; border-radius: 10px; padding: 7px 10px 5px; color: var(--slate-700); font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bolha.entrada { align-self: flex-end; border-top-right-radius: 3px; background: #FDF1D9; }
 .bolha.saida { align-self: flex-start; border-top-left-radius: 3px; background: #fff; }
 .bolha .hora { display: block; margin-top: 2px; color: var(--slate-400); font-size: 11px; text-align: right; }
 .bolha .modelo { display: block; margin-bottom: 3px; color: var(--slate-500); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .bolha.erro { border: 1px solid #fecaca; }
-.respostas { display: grid; width: 88%; gap: 4px; align-self: flex-start; }
-.respostas button { min-height: 34px; border: 0; background: #fff; color: var(--blue-800); padding: 6px 10px; font-size: 13px; font-weight: 700; }
-.respostas button:hover:not(:disabled) { background: var(--slate-50); }
-.respostas button small { display: block; color: var(--slate-500); font-weight: 400; }
-.chat-vazio { align-self: center; border-radius: 6px; background: #fff; color: var(--slate-500); padding: 3px 10px; font-size: 12px; }
-.compor { display: flex; gap: 6px; padding: 8px 2px 2px; }
-.compor input { flex: 1; min-width: 0; border-radius: 20px; }
-.compor button { border-radius: 20px; }
-
-@media (max-width: 1100px) { .telefones { grid-template-columns: minmax(0, 1fr); } .chat { height: 420px; } .grade-2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) { .grade-2 { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 560px) { .dl { grid-template-columns: minmax(0, 1fr); gap: 2px; } .dl dd { margin-bottom: 8px; } .barra-linha { grid-template-columns: 100px minmax(0, 1fr) 80px; } }
 
 /* Páginas abertas por link (pedido e fornecedor) */

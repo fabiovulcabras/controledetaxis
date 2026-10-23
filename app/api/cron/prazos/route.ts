@@ -22,7 +22,7 @@ export async function GET(req: Request) {
     const lembretes = await enviarLembretes(repo, agora);
     if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);
     else {
-      await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica visível no Simulador e no histórico
+      await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica no histórico de mensagens da corrida
       await despacharSaidas(db, prazos); // e-mails de alerta, se configurados
     }
     return Response.json({ ok: true, mensagens: prazos.length + lembretes.length });

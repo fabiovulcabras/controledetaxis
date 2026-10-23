@@ -68,7 +68,6 @@ export default function VisaoGeral() {
     <>
       <TopoPagina titulo="Visão geral" subtitulo={`Atualiza sozinha quando algo muda · ${formatarDataHora(agora).slice(6)}`}>
         {planejamento && permissao === "default" && <button type="button" className="ghost" onClick={pedirPermissao}>Ativar alertas no navegador</button>}
-        {planejamento && <Link href="/simulador" className="ghost">Simular solicitação</Link>}
       </TopoPagina>
       {err && <div className="err">{err}</div>}
 

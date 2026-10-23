@@ -7,7 +7,7 @@ import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despac
 /**
  * Motor do bot: recebe uma mensagem e devolve as mensagens a enviar.
  * Quem fala é identificado pelo telefone: fornecedor, pessoa autorizada, planejamento ou número desconhecido.
- * Não envia nada sozinho; quem chama decide se manda pela Meta ou grava no Simulador.
+ * Não envia nada sozinho; quem chama decide se manda pela Meta ou só grava no histórico.
  */
 export async function processarEntrada(entrada: Entrada, repo: Repo, agora: Date): Promise<Saida[]> {
   const telefone = normalizarTelefone(entrada.telefone);
