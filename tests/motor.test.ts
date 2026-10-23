@@ -5,7 +5,9 @@ import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "..
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
-import { lerFaturaCsv } from "../lib/csv";
+import { lerFaturaCsv, lerFaturaLinhas } from "../lib/csv";
+import { gerarXlsx } from "../lib/xlsx";
+import { lerPlanilhaXlsx } from "../lib/xlsx-leitura";
 import { enderecoDoNominatim, sugestoesDoPhoton } from "../lib/endereco";
 import type { Entrada, Saida } from "../lib/bot/tipos";
 
@@ -455,5 +457,22 @@ describe("reenvio automático e conferência de valor", () => {
     await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 5 min" });
     const s = await c.enviar({ telefone: RTC, texto: "80" });
     expect(para(s, PLAN).some((x) => x.texto.includes("passou do limite mensal"))).toBe(true);
+  });
+});
+
+describe("fatura em Excel (.xlsx)", () => {
+  it("lê de volta uma planilha gerada pelo próprio app", async () => {
+    const partes = gerarXlsx("Fatura", [{ titulo: "Data" }, { titulo: "Protocolo" }, { titulo: "Descrição" }, { titulo: "Valor", formato: "moeda" }],
+      [["19/10/2026", "TX-2026-00012", "Centro & GRU", 142.5], [46315, "tx-2026-00013", "Rodoviária", 54]]);
+    const total = partes.reduce((n, p) => n + p.length, 0);
+    const buf = new Uint8Array(total); let o = 0;
+    for (const p of partes) { buf.set(p, o); o += p.length; }
+    const linhas = await lerPlanilhaXlsx(buf.buffer);
+    expect(linhas[0]).toEqual(["Data", "Protocolo", "Descrição", "Valor"]);
+    const { itens } = lerFaturaLinhas(linhas);
+    expect(itens).toHaveLength(2);
+    expect(itens[0]).toEqual({ data_corrida: "2026-10-19", protocolo_informado: "TX-2026-00012", descricao: "Centro & GRU", valor: 142.5 });
+    expect(itens[1].data_corrida).toBe("2026-10-20");
+    expect(itens[1].protocolo_informado).toBe("TX-2026-00013");
   });
 });

@@ -41,16 +41,20 @@ export default function Cadastros() {
           { key: "unidade_id", label: "Unidade", type: "select", opcoes: { tabela: "unidades", rotulo: (r) => r.nome } },
           { key: "centro_custo_padrao_id", label: "Centro de custo padrão", type: "select", opcoes: { tabela: "centros_custo", rotulo: (r) => `${r.codigo} · ${r.descricao}` } },
           { key: "fornecedor_padrao_id", label: "Fornecedor padrão", type: "select", opcoes: { tabela: "fornecedores", rotulo: (r) => r.nome }, ajuda: "Vazio: usa o fornecedor ativo de maior prioridade." },
+          { key: "limite_mensal", label: "Limite mensal (R$)", type: "number", esconderNaTabela: true, ajuda: "Gasto acima disso no mês gera alerta ao planejamento. Vazio: sem limite." },
         ]} />}
 
       {aba === "fornecedores" && <Crud key="forn" table="fornecedores" title="Fornecedores" nomeItem="fornecedor" ordem="prioridade"
-        subtitulo="Recebem as corridas pelo WhatsApp com os botões Aceitar e Recusar."
+        subtitulo="Recebem as corridas pelo WhatsApp. Pelo “Link do portal” o fornecedor vê todas as corridas dele num só lugar."
+        acoesExtras={(r, recarregar) => r.ativo ? <LinkPortal fornecedor={r} recarregar={recarregar} /> : null}
         fields={[
           { key: "nome", label: "Nome", required: true },
           { key: "telefone_whatsapp", label: "WhatsApp que recebe as corridas", required: true, mascara: "whatsapp", unico: true, placeholder: "(11) 3333-4444" },
           { key: "cnpj", label: "CNPJ", mascara: "cnpj" },
           { key: "prioridade", label: "Prioridade", type: "number", required: true, ajuda: "1 = primeira opção quando o solicitante não tem fornecedor padrão." },
           { key: "prazo_resposta_min", label: "Prazo para responder (min)", type: "number", required: true, ajuda: "Corridas imediatas. Agendadas usam o parâmetro prazo_agendada_min." },
+          { key: "bandeirada", label: "Bandeirada (R$)", type: "number", esconderNaTabela: true, ajuda: "Com o valor por km, calcula a tarifa de referência de cada corrida." },
+          { key: "valor_km", label: "Valor por km (R$)", type: "number", esconderNaTabela: true, ajuda: "Valor informado acima da referência + tolerancia_trajeto_pct gera alerta." },
         ]} />}
 
       {aba === "centros" && <Crud key="cc" table="centros_custo" title="Centros de custo" nomeItem="centro de custo" ordem="codigo"
@@ -104,6 +108,53 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
               <p className="secao-ajuda">É por este link que {pessoa.nome.split(" ")[0]} pede táxi. Os pedidos saem no nome dela; quem tiver o link consegue pedir.</p>
               <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link de pedido" />
               <a className="botao-whatsapp" href={linkWhatsApp(pessoa.telefone_whatsapp, msgLinkPedido(pessoa.nome, base, pessoa.token_pedido))} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(pessoa.telefone_whatsapp)} pelo WhatsApp</a>
+              <div className="row">
+                <button type="button" className="ghost" onClick={copiar}>Copiar link</button>
+                <a className="ghost" href={url} target="_blank" rel="noopener noreferrer">Abrir</a>
+                <button type="button" className="ghost botao-perigo" onClick={trocar}>Gerar novo link</button>
+              </div>
+              {msg && <p className="resumo-entrada">{msg}</p>}
+            </fieldset>
+            )}
+          </div>
+        </PainelLateral>
+      )}
+    </>
+  );
+}
+
+/** Link fixo do portal do fornecedor: todas as corridas dele, sem depender de cada mensagem. */
+function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome: string; telefone_whatsapp: string; token_portal?: string | null }; recarregar: () => Promise<void> }) {
+  const { confirmar } = useRetorno();
+  const [aberto, setAberto] = useState(false);
+  const [msg, setMsg] = useState("");
+  const base = typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${base}/fornecedor/${fornecedor.token_portal}`;
+  const texto = `Olá, ${fornecedor.nome}! Este é o seu portal de corridas: ${url}\nPor ele você vê as corridas para responder, as em andamento e as encerradas. Salve nos favoritos.`;
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(url); setMsg("Link copiado."); } catch { setMsg("Não foi possível copiar; selecione o link e copie."); }
+  };
+  const trocar = async () => {
+    if (!(await confirmar({ titulo: `Gerar novo link do portal de ${fornecedor.nome}?`, texto: "O link atual para de funcionar na hora.", confirmar: "Gerar novo link", perigo: true }))) return;
+    const novo = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+    const { error } = await supabase.from("fornecedores").update({ token_portal: novo }).eq("id", fornecedor.id);
+    setMsg(error ? error.message : "Novo link gerado. Envie para o fornecedor.");
+    await recarregar();
+  };
+  return (
+    <>
+      <button type="button" className="ghost" onClick={() => setAberto(true)}>Link do portal</button>
+      {aberto && (
+        <PainelLateral titulo="Portal do fornecedor" subtitulo={fornecedor.nome} onFechar={() => setAberto(false)} largura={520}>
+          <div className="painel-corpo">
+            {!fornecedor.token_portal ? (
+              <p className="err">O banco ainda não tem o portal do fornecedor. No Supabase, abra o SQL Editor, rode <strong>supabase/003_melhorias.sql</strong> e recarregue esta página.</p>
+            ) : (
+            <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+              <legend>Link fixo</legend>
+              <p className="secao-ajuda">Quem tiver o link vê e responde as corridas deste fornecedor.</p>
+              <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link do portal" />
+              <a className="botao-whatsapp" href={linkWhatsApp(fornecedor.telefone_whatsapp, texto)} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(fornecedor.telefone_whatsapp)} pelo WhatsApp</a>
               <div className="row">
                 <button type="button" className="ghost" onClick={copiar}>Copiar link</button>
                 <a className="ghost" href={url} target="_blank" rel="noopener noreferrer">Abrir</a>

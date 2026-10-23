@@ -19,17 +19,19 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 
 | Tela | Perfil | O que faz |
 | --- | --- | --- |
-| Visão geral | todos | Números do dia, exceções para tratar, valor por fornecedor e por centro de custo no mês |
-| Corridas | todos | Lista com filtros; detalhe com dados, linha do tempo, mensagens e ações (validar, contestar, cancelar, reenviar, ajustar valor) |
-| Conciliação | planejamento | Importa a fatura, cruza com os protocolos, aceita/contesta itens, aponta corridas não faturadas, exporta a contestação |
+| Visão geral | todos | Números do dia, exceções, corridas aguardando fornecedor (com prazo), gráfico diário e valor por fornecedor e centro de custo. Atualiza sozinha (tempo real) |
+| Corridas | todos | Lista com busca e filtros no servidor, paginação, exportação para Excel e cartões no celular; detalhe com dados, linha do tempo, mensagens e ações (validar, contestar, cancelar, reenviar, ajustar valor) |
+| Relatórios | todos | Por período: taxa de aceite e tempo de resposta por fornecedor, gasto por pessoa (com % do limite mensal) e por centro de custo, exportação para Excel |
+| Conciliação | planejamento | Importa a fatura (CSV ou Excel .xlsx), aceita todos os conciliados de uma vez, cruza com os protocolos, aceita/contesta itens, aponta corridas não faturadas, exporta a contestação |
 | Pedido por link (`/pedir/…`) | pessoa autorizada, sem login | Pedido de táxi pelo celular, acompanhamento e cancelamento |
-| Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor |
+| Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
+| Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
 | Simulador do bot | planejamento | Três celulares (pessoa autorizada, fornecedor, planejamento) conversando com o mesmo motor do WhatsApp real |
 | Cadastros | admin | Pessoas autorizadas, fornecedores, centros de custo, unidades, parâmetros e usuários do painel |
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`), cada uma numa execução separada.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios para usar no Simulador.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -96,11 +98,15 @@ app/                     telas (Next.js App Router) e rotas de API
   api/corridas/acao      ações do planejamento sobre uma corrida
   api/cron/prazos        agendador
   api/usuarios           convite de usuários (admin)
+  api/pedido, api/fornecedor, api/portal  rotas públicas dos links (com token e limite de tentativas)
+  api/endereco           endereço escrito da localização e sugestões (OpenStreetMap)
+  api/saude              diagnóstico da configuração
 lib/bot/motor.ts         máquina de conversa do bot (solicitante e fornecedor)
 lib/bot/acoes.ts         despachar, cancelar, alertar, prazos, lembretes
 lib/bot/repo-supabase.ts acesso a dados do bot
 lib/whatsapp/            modelos, montagem do payload da Meta e envio
 supabase/schema.sql      tabelas, funções, RLS
+supabase/00N_*.sql       migrações, rodar na ordem
 supabase/tests/          cenários de teste do banco
 tests/                   testes do motor do bot
 ```
@@ -112,6 +118,9 @@ tests/                   testes do motor do bot
 - Conversa parada por mais de `conversa_expira_min` minutos é descartada. Três respostas não entendidas voltam ao menu.
 - Fornecedor: o padrão da pessoa autorizada; sem padrão, o ativo de menor número em Prioridade.
 - Prazo de resposta: o do fornecedor para corridas imediatas; `prazo_agendada_min` para agendadas. O fornecedor ainda pode aceitar depois do prazo, e o planejamento é avisado.
-- Valor acima do teto do centro de custo gera alerta.
+- Valor acima do teto do centro de custo gera alerta. Também geram alerta: valor acima da tarifa de referência do fornecedor (`bandeirada` + `valor_km` × distância, mais `tolerancia_trajeto_pct`) e gasto da pessoa acima do `limite_mensal` dela.
+- Recusa ou falta de resposta reenvia sozinha ao próximo fornecedor ativo ainda não tentado (parâmetro `reenvio_automatico`; `nao` desliga).
+- Pedido por link: no máximo `limite_pedidos_hora` por pessoa por hora; o mesmo pedido enviado duas vezes (clique duplo, rede instável) cria uma corrida só. As rotas públicas têm limite de tentativas por minuto.
+- E-mail ao planejamento (opcional): defina `RESEND_API_KEY` e `EMAIL_REMETENTE` e preencha o parâmetro `planejamento_emails`.
 - Conciliação: dentro da tolerância (`tolerancia_pct` ou `tolerancia_valor`, o maior) = conciliado. Também aponta sem protocolo, corrida cancelada, outro fornecedor e cobrança duplicada. Aceitar valida a corrida; contestar marca como contestada.
 - Corrida validada só volta a contestada com justificativa. Toda mudança fica em `corrida_eventos` com origem e usuário.

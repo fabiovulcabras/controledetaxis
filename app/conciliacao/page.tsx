@@ -6,7 +6,8 @@ import { KpiCard } from "@/components/UI";
 import { Campo, Filtros, PainelLateral, TopoPagina } from "@/components/Formulario";
 import { SituacaoTag, SITUACOES, StatusTag } from "@/components/StatusTag";
 import { brl, competencia, dataSP, formatarData, formatarDataHora } from "@/lib/datas";
-import { gerarCsv, lerFaturaCsv, type ItemFatura } from "@/lib/csv";
+import { gerarCsv, lerFaturaCsv, lerFaturaLinhas, type ItemFatura } from "@/lib/csv";
+import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import type { StatusCorrida } from "@/lib/status";
 
 type Fatura = { id: string; fornecedor_id: string; competencia: string; numero_nf: string | null; valor_total: number; status: string; criado_em: string; fornecedores?: { nome: string } | null };
@@ -143,7 +144,11 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
           <button type="button" className="ghost" disabled={ocupado} onClick={exportar}>Exportar contestação</button>
           {resumo.pendentesConciliados.length > 0 && (
             <button type="button" className="pri" disabled={ocupado} onClick={() => acao(async () => {
-              for (const i of resumo.pendentesConciliados) await rpc("fn_decidir_item", { p_item: i.id, p_decisao: "aceito", p_obs: null });
+              // Uma chamada só no banco; se a migração 003 ainda não rodou, cai para um item por vez
+              const { error } = await supabase.rpc("fn_aceitar_conciliados", { p_fatura: fatura.id });
+              if (error && /could not find|does not exist/i.test(error.message)) {
+                for (const i of resumo.pendentesConciliados) await rpc("fn_decidir_item", { p_item: i.id, p_decisao: "aceito", p_obs: null });
+              } else if (error) throw new Error(error.message);
             }, `${resumo.pendentesConciliados.length} item(ns) aceito(s); as corridas foram validadas.`)}>Aceitar {resumo.pendentesConciliados.length} conciliado(s)</button>
           )}
         </div>
@@ -229,13 +234,25 @@ function Importar({ fornecedores, onFechar, onImportou }: { fornecedores: { id: 
   const [texto, setTexto] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [err, setErr] = useState("");
-  const lido = useMemo(() => (texto.trim() ? lerFaturaCsv(texto) : { itens: [] as ItemFatura[], erros: [] as string[] }), [texto]);
+  const [planilha, setPlanilha] = useState<{ nome: string; itens: ItemFatura[]; erros: string[] } | null>(null);
+  const lido = useMemo(() => planilha ?? (texto.trim() ? lerFaturaCsv(texto) : { itens: [] as ItemFatura[], erros: [] as string[] }), [texto, planilha]);
   const total = lido.itens.reduce((s, i) => s + i.valor, 0);
 
   const arquivo = async (f: File | undefined) => {
     if (!f) return;
-    if (/\.xlsx?$/i.test(f.name)) { setErr("Salve a planilha como CSV (Arquivo › Salvar como › CSV) e envie o arquivo .csv."); return; }
-    setErr(""); setTexto(await f.text());
+    setErr("");
+    if (/\.xls$/i.test(f.name)) { setErr("Arquivos .xls antigos não são lidos. Salve como .xlsx ou .csv e envie de novo."); return; }
+    if (/\.xlsx$/i.test(f.name)) {
+      try {
+        const linhas = await lerPlanilhaXlsx(await f.arrayBuffer());
+        setPlanilha({ nome: f.name, ...lerFaturaLinhas(linhas) });
+        setTexto("");
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : "Não foi possível ler a planilha.");
+      }
+      return;
+    }
+    setPlanilha(null); setTexto(await f.text());
   };
 
   const importar = async (e: React.FormEvent) => {
@@ -254,7 +271,7 @@ function Importar({ fornecedores, onFechar, onImportou }: { fornecedores: { id: 
   };
 
   return (
-    <PainelLateral titulo="Importar fatura" subtitulo="CSV com as colunas data; protocolo; descrição; valor" onFechar={onFechar} ocupado={ocupado} largura={620}>
+    <PainelLateral titulo="Importar fatura" subtitulo="Excel (.xlsx) ou CSV com as colunas data, protocolo, descrição e valor" onFechar={onFechar} ocupado={ocupado} largura={620}>
       <form className="painel-corpo" onSubmit={importar} noValidate>
         <fieldset className="secao">
           <legend>Fatura</legend>
@@ -270,11 +287,12 @@ function Importar({ fornecedores, onFechar, onImportou }: { fornecedores: { id: 
         <fieldset className="secao">
           <legend>Itens</legend>
           <p className="secao-ajuda">Envie o arquivo .csv exportado da planilha do fornecedor ou cole as linhas abaixo. O protocolo é o número TX-AAAA-NNNNN que a corrida recebeu.</p>
-          <label className="botao-arquivo campo-largo">Escolher arquivo CSV<input type="file" accept=".csv,text/csv,.txt" onChange={(e) => arquivo(e.target.files?.[0])} /></label>
+          <label className="botao-arquivo campo-largo">Escolher arquivo (Excel ou CSV)<input type="file" accept=".csv,.xlsx,text/csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(e) => arquivo(e.target.files?.[0])} /></label>
           <Campo rotulo="Conteúdo" largo ajuda="Exemplo: 19/10/2026;TX-2026-00012;Centro → GRU;142,50">
-            <textarea rows={8} value={texto} onChange={(e) => setTexto(e.target.value)} style={{ fontFamily: "Consolas, monospace", fontSize: 13 }} />
+            <textarea rows={8} value={texto} onChange={(e) => { setPlanilha(null); setTexto(e.target.value); }} style={{ fontFamily: "Consolas, monospace", fontSize: 13 }} />
           </Campo>
-          {texto.trim() && <p className="resumo-entrada campo-largo"><strong>{lido.itens.length}</strong> item(ns) reconhecido(s), total <strong>{brl(total)}</strong>{lido.erros.length ? ` · ${lido.erros.length} linha(s) ignorada(s)` : ""}</p>}
+          {planilha && <p className="resumo-entrada campo-largo">Planilha <strong>{planilha.nome}</strong></p>}
+          {(texto.trim() || planilha) && <p className="resumo-entrada campo-largo"><strong>{lido.itens.length}</strong> item(ns) reconhecido(s), total <strong>{brl(total)}</strong>{lido.erros.length ? ` · ${lido.erros.length} linha(s) ignorada(s)` : ""}</p>}
           {lido.erros.slice(0, 5).map((m) => <p key={m} className="campo-aviso campo-largo" style={{ margin: 0 }}>{m}</p>)}
         </fieldset>
         {err && <div className="err">{err}</div>}

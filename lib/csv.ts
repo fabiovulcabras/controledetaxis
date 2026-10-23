@@ -19,6 +19,11 @@ function dividir(linha: string, sep: string): string[] {
 
 function lerData(t: string): string | null {
   const s = t.trim();
+  // Data gravada como número de série do Excel (dias desde 30/12/1899)
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(s)) * 86400_000);
+    return d.toISOString().slice(0, 10);
+  }
   let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (m) return `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -33,7 +38,14 @@ export function lerFaturaCsv(texto: string): { itens: ItemFatura[]; erros: strin
   const linhas = texto.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim());
   if (!linhas.length) return { itens: [], erros: ["O arquivo está vazio."] };
   const sep = [";", "\t", ","].map((s) => [s, linhas[0].split(s).length] as const).sort((a, b) => b[1] - a[1])[0][0];
-  const cab = dividir(linhas[0], sep).map(semAcento);
+  return lerFaturaLinhas(linhas.map((l) => dividir(l, sep)));
+}
+
+/** Mesma leitura a partir de linhas já separadas em colunas (usada também para .xlsx). */
+export function lerFaturaLinhas(linhasBrutas: string[][]): { itens: ItemFatura[]; erros: string[] } {
+  const linhas = linhasBrutas.map((l) => l.map((c) => String(c ?? "").trim())).filter((l) => l.some(Boolean));
+  if (!linhas.length) return { itens: [], erros: ["O arquivo está vazio."] };
+  const cab = linhas[0].map(semAcento);
   const achar = (...nomes: string[]) => cab.findIndex((c) => nomes.some((n) => c.includes(n)));
   const temCabecalho = cab.some((c) => /protocolo|valor|data/.test(c));
   const col = temCabecalho
@@ -42,8 +54,7 @@ export function lerFaturaCsv(texto: string): { itens: ItemFatura[]; erros: strin
   if (col.valor < 0) return { itens: [], erros: ["Não encontrei a coluna de valor. Use as colunas data; protocolo; descrição; valor."] };
 
   const itens: ItemFatura[] = []; const erros: string[] = [];
-  linhas.slice(temCabecalho ? 1 : 0).forEach((linha, i) => {
-    const c = dividir(linha, sep);
+  linhas.slice(temCabecalho ? 1 : 0).forEach((c, i) => {
     const valor = lerValor((c[col.valor] ?? "").replace(/\s/g, ""));
     if (valor == null) { erros.push(`Linha ${i + (temCabecalho ? 2 : 1)}: valor "${c[col.valor] ?? ""}" não reconhecido.`); return; }
     itens.push({

@@ -1,87 +1,143 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
-import { Campo, Filtros, PainelLateral, TopoPagina, normalizarTexto } from "@/components/Formulario";
+import { Campo, Filtros, PainelLateral, TopoPagina } from "@/components/Formulario";
 import { StatusTag } from "@/components/StatusTag";
+import Prazo from "@/components/Prazo";
 import { useApp } from "@/components/AuthGate";
+import { useRetorno } from "@/components/Retorno";
+import { useTempoReal } from "@/lib/hooks/useTempoReal";
+import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import { CANCELAVEIS, EXCECOES, STATUS, type StatusCorrida } from "@/lib/status";
 import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
 import { formatarTelefone } from "@/lib/telefone";
 import { linkWhatsApp, msgNovaCorridaFornecedor } from "@/lib/whatsapp/link";
+import { baixarXlsx } from "@/lib/xlsx";
+import { valorEsperado } from "@/lib/bot/acoes";
 
 type Corrida = {
   id: string; protocolo: string; status: StatusCorrida; tipo: string; data_hora_prevista: string; criado_em: string;
   origem: string; destino: string; qtd_passageiros: number; outros_passageiros: string | null; motivo: string;
   motorista: string | null; veiculo_placa: string | null; eta_minutos: number | null;
   valor_informado: number | null; valor_faturado: number | null; prazo_resposta_em: string | null;
-  motivo_recusa: string | null; motivo_cancelamento: string | null;
+  motivo_recusa: string | null; motivo_cancelamento: string | null; distancia_km?: number | null;
   solicitante_id: string; fornecedor_id: string | null; centro_custo_id: string | null;
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
-  fornecedores?: { nome: string; telefone_whatsapp?: string } | null;
+  fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
   token_fornecedor?: string;
   centros_custo?: { codigo: string; descricao: string } | null;
 };
-type Grupo = "todas" | "abertas" | "excecoes" | "validar" | "validadas" | "canceladas";
-const GRUPOS: Record<Grupo, (s: StatusCorrida) => boolean> = {
-  todas: () => true,
-  abertas: (s) => ["solicitada", "enviada", "aceita", "em_andamento"].includes(s),
-  excecoes: (s) => EXCECOES.includes(s),
-  validar: (s) => s === "concluida",
-  validadas: (s) => s === "validada",
-  canceladas: (s) => s === "cancelada",
+/** Linha da view corridas_lista (nomes já juntados). */
+type Linha = Omit<Corrida, "solicitantes" | "fornecedores" | "centros_custo"> & {
+  solicitante_nome: string; solicitante_setor: string | null; fornecedor_nome: string | null; centro_codigo: string | null; centro_descricao: string | null;
 };
+type Grupo = "todas" | "abertas" | "excecoes" | "validar" | "validadas" | "canceladas";
+const GRUPOS: Record<Grupo, StatusCorrida[] | null> = {
+  todas: null,
+  abertas: ["solicitada", "enviada", "aceita", "em_andamento"],
+  excecoes: EXCECOES,
+  validar: ["concluida"],
+  validadas: ["validada"],
+  canceladas: ["cancelada"],
+};
+const POR_PAGINA = 50;
 
 const isoDia = (d: Date) => { const p = partesSP(d); return `${p.ano}-${String(p.mes).padStart(2, "0")}-${String(p.dia).padStart(2, "0")}`; };
 const deIso = (s: string, fim = false) => { const [a, m, d] = s.split("-").map(Number); return fim ? dataSP(a, m, d, 23, 59) : dataSP(a, m, d); };
+const semAcento = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 export default function Corridas() {
   const { planejamento } = useApp();
-  const [rows, setRows] = useState<Corrida[]>([]);
+  const { avisar } = useRetorno();
+  const [rows, setRows] = useState<Linha[]>([]);
+  const [total, setTotal] = useState(0);
+  const [contagem, setContagem] = useState<Record<string, number>>({});
+  const [pagina, setPagina] = useState(0);
   const [fornecedores, setFornecedores] = useState<{ id: string; nome: string; ativo: boolean }[]>([]);
   const [de, setDe] = useState(() => isoDia(new Date(Date.now() - 30 * 86400_000)));
   const [ate, setAte] = useState(() => isoDia(new Date(Date.now() + 30 * 86400_000)));
   const [grupo, setGrupo] = useState<Grupo>("todas");
   const [fornecedor, setFornecedor] = useState("");
   const [busca, setBusca] = useState("");
+  const [buscaAplicada, setBuscaAplicada] = useState("");
   const [err, setErr] = useState("");
   const [carregando, setCarregando] = useState(true);
+  const [exportando, setExportando] = useState(false);
   const [aberta, setAberta] = useState<string | null>(null);
+
+  // Espera a pessoa parar de digitar antes de buscar no banco
+  useEffect(() => { const t = setTimeout(() => setBuscaAplicada(busca), 350); return () => clearTimeout(t); }, [busca]);
+  useEffect(() => { setPagina(0); }, [de, ate, grupo, fornecedor, buscaAplicada]);
+
+  /** Mesma consulta para a lista e para a exportação. */
+  const consulta = (campos: string, contar = false) => {
+    let q = supabase.from("corridas_lista").select(campos, contar ? { count: "exact" } : undefined)
+      .gte("data_hora_prevista", deIso(de).toISOString()).lte("data_hora_prevista", deIso(ate, true).toISOString());
+    const sts = GRUPOS[grupo];
+    if (sts) q = q.in("status", sts);
+    if (fornecedor) q = q.eq("fornecedor_id", fornecedor);
+    if (buscaAplicada.trim()) q = q.like("busca", `%${semAcento(buscaAplicada)}%`);
+    return q.order("data_hora_prevista", { ascending: false });
+  };
 
   const carregar = async () => {
     setCarregando(true);
-    const { data, error } = await supabase.from("corridas")
-      .select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome), centros_custo(codigo,descricao)")
-      .gte("data_hora_prevista", deIso(de).toISOString()).lte("data_hora_prevista", deIso(ate, true).toISOString())
-      .order("data_hora_prevista", { ascending: false }).limit(1000);
-    setErr(error ? `Não foi possível carregar as corridas: ${error.message}` : "");
-    setRows((data ?? []) as Corrida[]);
+    const [lista, cont] = await Promise.all([
+      consulta("*", true).range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1),
+      supabase.rpc("fn_contar_corridas", { p_de: deIso(de).toISOString(), p_ate: deIso(ate, true).toISOString(), p_fornecedor: fornecedor || null, p_busca: buscaAplicada.trim() || null }),
+    ]);
+    const erro = lista.error ?? cont.error;
+    setErr(erro ? `Não foi possível carregar as corridas: ${erro.message}${/does not exist|could not find/i.test(erro.message) ? " — rode a migração supabase/003_melhorias.sql." : ""}` : "");
+    setRows((lista.data ?? []) as unknown as Linha[]);
+    setTotal(lista.count ?? 0);
+    setContagem(((cont.data as any)?.por_status ?? {}) as Record<string, number>);
     setCarregando(false);
   };
-  useEffect(() => { void carregar(); }, [de, ate]);
+  useEffect(() => { void carregar(); }, [de, ate, grupo, fornecedor, buscaAplicada, pagina]);
   useEffect(() => {
     supabase.from("fornecedores").select("id,nome,ativo").order("nome").then(({ data }) => setFornecedores(data ?? []));
     const id = new URLSearchParams(window.location.search).get("id");
     if (id) setAberta(id);
-    const t = setInterval(() => void carregar(), 20_000);
-    return () => clearInterval(t);
   }, []);
+  useTempoReal(["corridas"], () => void carregar());
+  useIntervaloVisivel(() => void carregar(), 120_000);
 
-  const termo = normalizarTexto(busca);
-  const daBusca = rows.filter((c) => (!fornecedor || c.fornecedor_id === fornecedor)
-    && (!termo || normalizarTexto(`${c.protocolo} ${c.solicitantes?.nome ?? ""} ${c.origem} ${c.destino} ${c.motivo}`).includes(termo)));
-  const lista = daBusca.filter((c) => GRUPOS[grupo](c.status));
-  const conta = (g: Grupo) => daBusca.filter((c) => GRUPOS[g](c.status)).length;
-  const total = lista.reduce((s, c) => s + Number(c.valor_informado ?? 0), 0);
+  const conta = (g: Grupo) => (GRUPOS[g] ?? Object.keys(contagem) as StatusCorrida[]).reduce((n, s) => n + (contagem[s] ?? 0), 0);
+  const valorPagina = rows.reduce((s, c) => s + Number(c.valor_informado ?? 0), 0);
+  const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
   const abrir = (id: string | null) => {
     setAberta(id);
     window.history.replaceState(null, "", id ? `/corridas?id=${id}` : "/corridas");
   };
 
+  const exportar = async () => {
+    setExportando(true);
+    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,centro_codigo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_informado,valor_faturado").limit(10000);
+    setExportando(false);
+    if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
+    const linhas = (data ?? []) as any[];
+    baixarXlsx(`corridas-${de}-a-${ate}.xlsx`, "Corridas", [
+      { titulo: "Protocolo", largura: 16 }, { titulo: "Data/hora", largura: 14 }, { titulo: "Tipo", largura: 10 }, { titulo: "Solicitante", largura: 22 },
+      { titulo: "Setor", largura: 14 }, { titulo: "Origem", largura: 36 }, { titulo: "Destino", largura: 36 }, { titulo: "Passageiros", formato: "inteiro", largura: 11 },
+      { titulo: "Motivo", largura: 20 }, { titulo: "Centro de custo", largura: 14 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
+      { titulo: "Motorista", largura: 18 }, { titulo: "Placa", largura: 10 }, { titulo: "Distância (km)", formato: "decimal", largura: 13 },
+      { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
+    ], linhas.map((c) => [
+      c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
+      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.centro_codigo, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
+      c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km), c.valor_informado == null ? null : Number(c.valor_informado),
+      c.valor_faturado == null ? null : Number(c.valor_faturado),
+    ]));
+    avisar(`${linhas.length} corrida(s) exportada(s).`);
+  };
+
   return (
     <>
-      <TopoPagina titulo="Corridas" subtitulo="Toda corrida nasce com protocolo. Clique numa linha para ver o detalhe e tratar." />
+      <TopoPagina titulo="Corridas" subtitulo="Toda corrida nasce com protocolo. A lista atualiza sozinha quando algo muda.">
+        <button type="button" className="ghost" onClick={exportar} disabled={exportando || !total}>{exportando ? "Exportando…" : "Exportar Excel"}</button>
+      </TopoPagina>
       {err && <div className="err">{err}</div>}
       <section className="card">
         <div className="filtros-corridas">
@@ -93,34 +149,57 @@ export default function Corridas() {
               {fornecedores.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
             </select>
           </label>
-          <input type="search" placeholder="Buscar protocolo, solicitante, endereço ou motivo" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar" />
+          <input type="search" placeholder="Buscar protocolo, solicitante, setor, endereço ou motivo" value={busca} onChange={(e) => setBusca(e.target.value)} aria-label="Buscar" />
         </div>
         <div className="repor-filtros">
           <Filtros<Grupo> rotulo="Situação" valor={grupo} onChange={setGrupo} opcoes={[
             ["todas", "Todas", conta("todas")], ["abertas", "Em aberto", conta("abertas")], ["excecoes", "Exceções", conta("excecoes")],
             ["validar", "A validar", conta("validar")], ["validadas", "Validadas", conta("validadas")], ["canceladas", "Canceladas", conta("canceladas")],
           ]} />
-          <span className="texto-fraco">{lista.length} corrida(s) · valor informado {brl(total)}</span>
+          <span className="texto-fraco">{total} corrida(s){rows.length ? ` · nesta página ${brl(valorPagina)}` : ""}</span>
         </div>
-        <div className="tw">
+
+        <div className="tw so-tela-larga">
           <table>
             <thead><tr><th>Protocolo</th><th>Data/hora</th><th>Solicitante</th><th>Origem → destino</th><th>Fornecedor</th><th>Status</th><th className="num">Valor</th></tr></thead>
             <tbody>
-              {lista.map((c) => (
+              {rows.map((c) => (
                 <tr key={c.id} className="linha-clicavel" tabIndex={0} onClick={() => abrir(c.id)} onKeyDown={(e) => e.key === "Enter" && abrir(c.id)}>
                   <td><span className="protocolo">{c.protocolo}</span></td>
                   <td className="data-celula"><span>{formatarDataHora(c.data_hora_prevista)}</span><small>{c.tipo === "agendada" ? "Agendada" : "Imediata"}</small></td>
-                  <td>{c.solicitantes?.nome ?? "—"}<small className="bloco texto-fraco">{c.solicitantes?.setor ?? ""}</small></td>
+                  <td>{c.solicitante_nome}<small className="bloco texto-fraco">{c.solicitante_setor ?? ""}</small></td>
                   <td className="trajeto">{c.origem}<small>→ {c.destino}</small></td>
-                  <td>{c.fornecedores?.nome ?? <span className="texto-fraco">—</span>}</td>
-                  <td><StatusTag status={c.status} /></td>
+                  <td>{c.fornecedor_nome ?? <span className="texto-fraco">—</span>}</td>
+                  <td><StatusTag status={c.status} />{["enviada", "sem_resposta"].includes(c.status) && <div><Prazo ate={c.prazo_resposta_em} compacto /></div>}</td>
                   <td className="num">{brl(c.valor_informado)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {!lista.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma corrida neste filtro."}</p>}
+
+        <div className="cartoes-corridas so-celular">
+          {rows.map((c) => (
+            <button key={c.id} type="button" className="cartao-corrida" onClick={() => abrir(c.id)}>
+              <div className="cartao-corrida-topo"><span className="protocolo">{c.protocolo}</span><StatusTag status={c.status} /></div>
+              <div className="cartao-corrida-trajeto">{c.origem}<small>→ {c.destino}</small></div>
+              <div className="cartao-corrida-rodape">
+                <span>{formatarDataHora(c.data_hora_prevista)} · {c.solicitante_nome}</span>
+                <b>{brl(c.valor_informado)}</b>
+              </div>
+              {["enviada", "sem_resposta"].includes(c.status) && <Prazo ate={c.prazo_resposta_em} />}
+            </button>
+          ))}
+        </div>
+
+        {!rows.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma corrida neste filtro."}</p>}
+        {total > POR_PAGINA && (
+          <div className="paginacao">
+            <button type="button" className="ghost" disabled={pagina === 0} onClick={() => setPagina((p) => p - 1)}>Anterior</button>
+            <span>Página {pagina + 1} de {paginas}</span>
+            <button type="button" className="ghost" disabled={pagina + 1 >= paginas} onClick={() => setPagina((p) => p + 1)}>Próxima</button>
+          </div>
+        )}
       </section>
 
       {aberta && <Detalhe id={aberta} fornecedores={fornecedores} podeAgir={planejamento} onFechar={() => abrir(null)} onMudou={carregar} />}
@@ -150,7 +229,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
 
   const carregar = async () => {
     const [r, ev, ms] = await Promise.all([
-      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome,telefone_whatsapp), centros_custo(codigo,descricao)").eq("id", id).maybeSingle(),
+      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome,telefone_whatsapp,bandeirada,valor_km), centros_custo(codigo,descricao)").eq("id", id).maybeSingle(),
       supabase.from("corrida_eventos").select("*, profiles(nome)").eq("corrida_id", id).order("criado_em", { ascending: false }),
       supabase.from("mensagens").select("*").eq("corrida_id", id).order("criado_em"),
     ]);
@@ -160,6 +239,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
     setMensagens((ms.data ?? []) as Mensagem[]);
   };
   useEffect(() => { setAcao(null); setErr(""); setOk(""); setLinks([]); void carregar(); }, [id]);
+  useTempoReal(["corridas", "corrida_eventos", "mensagens"], () => void carregar());
 
   const executar = async (nome: string, extra: Record<string, unknown> = {}) => {
     setOcupado(true); setErr(""); setOk("");
@@ -264,9 +344,13 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Passageiros</dt><dd>{c.qtd_passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
             <dt>Centro de custo</dt><dd>{c.centros_custo ? `${c.centros_custo.codigo} · ${c.centros_custo.descricao}` : "—"}</dd>
             <dt>Motivo</dt><dd>{c.motivo}</dd>
-            <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <small className="bloco texto-fraco">Prazo de resposta: {formatarDataHora(c.prazo_resposta_em)}</small> : null}</dd>
+            <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado</span>}</dd>
-            <dt>Valor informado</dt><dd>{brl(c.valor_informado)}</dd>
+            {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
+            <dt>Valor informado</dt><dd>{brl(c.valor_informado)}{(() => {
+              const esperado = valorEsperado(c as any, c.fornecedores ? { ...(c.fornecedores as any), id: c.fornecedor_id } : null);
+              return esperado != null ? <small className="bloco texto-fraco">Referência pela tarifa: {brl(esperado)}</small> : null;
+            })()}</dd>
             <dt>Valor faturado</dt><dd>{brl(c.valor_faturado)}</dd>
             {c.motivo_cancelamento && <><dt>Cancelamento</dt><dd>{c.motivo_cancelamento}</dd></>}
           </dl>

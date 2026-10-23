@@ -6,6 +6,7 @@ import BrandMark from "@/components/BrandMark";
 import Sidebar from "@/components/Sidebar";
 import { Button, Input, PageHeader } from "@/components/UI";
 import { RetornoProvider } from "@/components/Retorno";
+import { AlertasProvider } from "@/components/AlertasPlanejamento";
 
 export type Profile = { id: string; nome: string; perfil: "admin" | "planejamento" | "consulta"; ativo?: boolean };
 export type NivelMenu = "todos" | "planejamento" | "admin";
@@ -16,6 +17,7 @@ export const useApp = () => useContext(AppCtx);
 const NAV: [string, string, NivelMenu][] = [
   ["/", "Visão geral", "todos"],
   ["/corridas", "Corridas", "todos"],
+  ["/relatorios", "Relatórios", "todos"],
   ["/conciliacao", "Conciliação", "planejamento"],
   ["/simulador", "Simulador do bot", "planejamento"],
   ["/cadastros", "Cadastros", "admin"],
@@ -67,7 +69,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     <p className="err">Este ambiente não tem as variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY. Cadastre-as na Vercel (Settings → Environment Variables) e faça um novo deploy.</p>
   </section></main>;
   // Páginas abertas por link (pedido da pessoa autorizada e resposta do fornecedor) não pedem login
-  if (path === "/redefinir-senha" || path.startsWith("/pedir/") || path.startsWith("/f/")) return children;
+  if (path === "/redefinir-senha" || path.startsWith("/pedir/") || path.startsWith("/f/") || path.startsWith("/fornecedor/")) return children;
   if (session === undefined) return null;
   if (!session) return <Login />;
   if (!profile) return <main className="main"><section className="card">
@@ -87,6 +89,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   return (
     <AppCtx.Provider value={{ profile, planejamento, admin }}>
      <RetornoProvider>
+     <AlertasProvider ativo={planejamento}>
       <div className="shell">
         <header className="mobile-header">
           <button type="button" className="menu-toggle" aria-label={menuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
@@ -99,6 +102,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           onSignOut={() => { void supabase.auth.signOut(); }} open={menuOpen} onClose={() => setMenuOpen(false)} />
         <main className="main">{bloqueado ? <p className="empty">Seu perfil não tem acesso a esta tela.</p> : children}</main>
       </div>
+     </AlertasProvider>
      </RetornoProvider>
     </AppCtx.Provider>
   );

@@ -1,126 +1,136 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { KpiCard } from "@/components/UI";
 import { TopoPagina } from "@/components/Formulario";
 import { StatusTag } from "@/components/StatusTag";
+import Prazo from "@/components/Prazo";
+import Barras from "@/components/Barras";
 import { useApp } from "@/components/AuthGate";
+import { useAlertas } from "@/components/AlertasPlanejamento";
+import { useTempoReal } from "@/lib/hooks/useTempoReal";
+import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import { EXCECOES, type StatusCorrida } from "@/lib/status";
-import { brl, formatarDataHora, inicioDoDiaSP, inicioDoMesSP, partesSP } from "@/lib/datas";
+import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
 
 type Linha = {
-  id: string; protocolo: string; status: StatusCorrida; data_hora_prevista: string; criado_em: string; destino: string;
-  valor_informado: number | null; fornecedor_id: string | null; centro_custo_id: string | null; solicitante_id: string;
+  id: string; protocolo: string; status: StatusCorrida; data_hora_prevista: string; destino: string; prazo_resposta_em: string | null;
+  solicitante_nome: string; fornecedor_nome: string | null;
+};
+type Resumo = {
+  por_status: Record<string, number>; total: number; valor_total: number;
+  por_dia: { dia: string; qtd: number; valor: number }[];
+  por_centro: { nome: string; qtd: number; valor: number }[];
+  por_fornecedor: { nome: string; qtd: number; valor: number }[];
 };
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-const COM_VALOR: StatusCorrida[] = ["concluida", "validada", "contestada"];
+const CAMPOS = "id,protocolo,status,data_hora_prevista,destino,prazo_resposta_em,solicitante_nome,fornecedor_nome";
 
 export default function VisaoGeral() {
   const { planejamento } = useApp();
-  const [mes, setMes] = useState<Linha[]>([]);
+  const { permissao, pedirPermissao } = useAlertas();
+  const [resumo, setResumo] = useState<Resumo | null>(null);
+  const [hoje, setHoje] = useState(0);
   const [excecoes, setExcecoes] = useState<Linha[]>([]);
-  const [nomes, setNomes] = useState<{ forn: Record<string, string>; cc: Record<string, string>; sol: Record<string, string> }>({ forn: {}, cc: {}, sol: {} });
+  const [aguardando, setAguardando] = useState<Linha[]>([]);
   const [err, setErr] = useState("");
   const [agora, setAgora] = useState(() => new Date());
 
   const carregar = async () => {
-    const hoje = new Date();
-    setAgora(hoje);
-    const campos = "id,protocolo,status,data_hora_prevista,criado_em,destino,valor_informado,fornecedor_id,centro_custo_id,solicitante_id";
-    const [m, ex, f, c, s] = await Promise.all([
-      supabase.from("corridas").select(campos).gte("criado_em", inicioDoMesSP(hoje).toISOString()).order("criado_em", { ascending: false }).limit(2000),
-      supabase.from("corridas").select(campos).in("status", EXCECOES).order("atualizado_em", { ascending: false }).limit(30),
-      supabase.from("fornecedores").select("id,nome"),
-      supabase.from("centros_custo").select("id,codigo,descricao"),
-      supabase.from("solicitantes").select("id,nome"),
+    const t = new Date();
+    setAgora(t);
+    const p = partesSP(t);
+    const inicioMes = dataSP(p.ano, p.mes, 1), fimMes = dataSP(p.mes === 12 ? p.ano + 1 : p.ano, p.mes === 12 ? 1 : p.mes + 1, 1);
+    const inicioDia = dataSP(p.ano, p.mes, p.dia);
+    const [r, h, ex, ag] = await Promise.all([
+      supabase.rpc("fn_resumo_periodo", { p_de: inicioMes.toISOString(), p_ate: fimMes.toISOString() }),
+      supabase.from("corridas").select("id", { count: "exact", head: true }).gte("criado_em", inicioDia.toISOString()),
+      supabase.from("corridas_lista").select(CAMPOS).in("status", EXCECOES).order("atualizado_em", { ascending: false }).limit(30),
+      supabase.from("corridas_lista").select(CAMPOS).in("status", ["solicitada", "enviada"]).order("prazo_resposta_em", { ascending: true, nullsFirst: false }).limit(15),
     ]);
-    const erro = m.error ?? ex.error;
-    setErr(erro ? `Não foi possível carregar os dados: ${erro.message}` : "");
-    setMes((m.data ?? []) as Linha[]);
+    const erro = r.error ?? ex.error ?? ag.error;
+    setErr(erro ? `Não foi possível carregar os dados: ${erro.message}${/does not exist|could not find/i.test(erro.message) ? " — rode a migração supabase/003_melhorias.sql." : ""}` : "");
+    setResumo((r.data as Resumo) ?? null);
+    setHoje(h.count ?? 0);
     setExcecoes((ex.data ?? []) as Linha[]);
-    setNomes({
-      forn: Object.fromEntries((f.data ?? []).map((x: any) => [x.id, x.nome])),
-      cc: Object.fromEntries((c.data ?? []).map((x: any) => [x.id, `${x.codigo} · ${x.descricao}`])),
-      sol: Object.fromEntries((s.data ?? []).map((x: any) => [x.id, x.nome])),
-    });
+    setAguardando((ag.data ?? []) as Linha[]);
   };
-  useEffect(() => {
-    void carregar();
-    const t = setInterval(() => void carregar(), 30_000);
-    return () => clearInterval(t);
-  }, []);
+  useEffect(() => { void carregar(); }, []);
+  useTempoReal(["corridas"], () => void carregar());
+  useIntervaloVisivel(() => void carregar(), 120_000);
 
-  const resumo = useMemo(() => {
-    const inicioHoje = inicioDoDiaSP(agora).getTime();
-    const conta = (sts: StatusCorrida[]) => mes.filter((c) => sts.includes(c.status)).length;
-    const somar = (chave: "fornecedor_id" | "centro_custo_id", mapa: Record<string, string>) => {
-      const tot = new Map<string, number>();
-      for (const c of mes) if (COM_VALOR.includes(c.status) && c.valor_informado != null) {
-        const k = c[chave] ? mapa[c[chave]!] ?? "—" : "Sem cadastro";
-        tot.set(k, (tot.get(k) ?? 0) + Number(c.valor_informado));
-      }
-      return [...tot.entries()].map(([nome, valor]) => ({ nome, valor })).sort((a, b) => b.valor - a.valor);
-    };
-    return {
-      hoje: mes.filter((c) => new Date(c.criado_em).getTime() >= inicioHoje).length,
-      aguardando: conta(["solicitada", "enviada"]),
-      andamento: conta(["aceita", "em_andamento"]),
-      validar: conta(["concluida"]),
-      total: mes.filter((c) => COM_VALOR.includes(c.status)).reduce((s, c) => s + Number(c.valor_informado ?? 0), 0),
-      porFornecedor: somar("fornecedor_id", nomes.forn),
-      porCentro: somar("centro_custo_id", nomes.cc),
-    };
-  }, [mes, nomes, agora]);
-
-  const p = partesSP(agora);
-  const nomeMes = MESES[p.mes - 1];
+  const st = resumo?.por_status ?? {};
+  const soma = (...k: string[]) => k.reduce((n, s) => n + (st[s] ?? 0), 0);
+  const nomeMes = MESES[partesSP(agora).mes - 1];
 
   return (
     <>
-      <TopoPagina titulo="Visão geral" subtitulo={`Atualizado às ${formatarDataHora(agora).slice(6)} · atualiza sozinho a cada 30 segundos`}>
+      <TopoPagina titulo="Visão geral" subtitulo={`Atualiza sozinha quando algo muda · ${formatarDataHora(agora).slice(6)}`}>
+        {planejamento && permissao === "default" && <button type="button" className="ghost" onClick={pedirPermissao}>Ativar alertas no navegador</button>}
         {planejamento && <Link href="/simulador" className="ghost">Simular solicitação</Link>}
       </TopoPagina>
       {err && <div className="err">{err}</div>}
 
       <div className="kpis">
-        <KpiCard value={resumo.hoje} label="Corridas pedidas hoje" />
-        <KpiCard value={resumo.aguardando} label="Aguardando fornecedor" />
-        <KpiCard value={resumo.andamento} label="Aceitas ou em andamento" />
-        <KpiCard value={resumo.validar} label="Concluídas a validar" />
+        <KpiCard value={hoje} label="Corridas pedidas hoje" />
+        <KpiCard value={aguardando.length} label="Aguardando fornecedor" />
+        <KpiCard value={soma("aceita", "em_andamento")} label={`Aceitas ou em andamento (${nomeMes})`} />
+        <KpiCard value={soma("concluida")} label="Concluídas a validar" />
         <KpiCard value={excecoes.length} label="Exceções para tratar" alert={excecoes.length > 0} />
       </div>
 
       <div className="grade-2">
-        <section className="card">
-          <div className="repor-topo">
-            <div><h3>Exceções para tratar</h3><p className="repor-resumo">Recusas, corridas sem resposta e contestações, das mais recentes para as mais antigas.</p></div>
-          </div>
-          {excecoes.length ? (
-            <ul className="excecoes">
-              {excecoes.map((c) => (
-                <li key={c.id}>
-                  <span className={`sev${c.status === "contestada" ? " aviso" : ""}`} />
-                  <div className="texto">
-                    <span className="protocolo">{c.protocolo}</span> <StatusTag status={c.status} />
-                    <div>{nomes.sol[c.solicitante_id] ?? "—"} · {c.destino}</div>
-                    <small>{c.fornecedor_id ? nomes.forn[c.fornecedor_id] : "Sem fornecedor"} · {formatarDataHora(c.data_hora_prevista)}</small>
-                  </div>
-                  <Link className="ghost" href={`/corridas?id=${c.id}`}>Abrir</Link>
-                </li>
-              ))}
-            </ul>
-          ) : <p className="empty">Nenhuma exceção aberta.</p>}
-        </section>
+        <div>
+          <section className="card">
+            <div className="repor-topo"><div><h3>Exceções para tratar</h3><p className="repor-resumo">Recusas, corridas sem resposta e contestações, das mais recentes para as mais antigas.</p></div></div>
+            {excecoes.length ? (
+              <ul className="excecoes">
+                {excecoes.map((c) => (
+                  <li key={c.id}>
+                    <span className={`sev${c.status === "contestada" ? " aviso" : ""}`} />
+                    <div className="texto">
+                      <span className="protocolo">{c.protocolo}</span> <StatusTag status={c.status} />
+                      <div>{c.solicitante_nome} · {c.destino}</div>
+                      <small>{c.fornecedor_nome ?? "Sem fornecedor"} · {formatarDataHora(c.data_hora_prevista)}</small>
+                    </div>
+                    <Link className="ghost" href={`/corridas?id=${c.id}`}>Abrir</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="empty">Nenhuma exceção aberta.</p>}
+          </section>
+          <section className="card">
+            <div className="repor-topo"><div><h3>Aguardando fornecedor</h3><p className="repor-resumo">Pelo prazo de resposta, as mais urgentes primeiro.</p></div></div>
+            {aguardando.length ? (
+              <ul className="excecoes">
+                {aguardando.map((c) => (
+                  <li key={c.id}>
+                    <div className="texto">
+                      <span className="protocolo">{c.protocolo}</span> <Prazo ate={c.prazo_resposta_em} />
+                      <div>{c.solicitante_nome} · {c.destino}</div>
+                      <small>{c.fornecedor_nome ?? "Sem fornecedor"} · {formatarDataHora(c.data_hora_prevista)}</small>
+                    </div>
+                    <Link className="ghost" href={`/corridas?id=${c.id}`}>Abrir</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="empty">Nenhuma corrida aguardando resposta.</p>}
+          </section>
+        </div>
 
         <div>
           <section className="card">
-            <div className="repor-topo"><div><h3>Valor informado por fornecedor</h3><p className="repor-resumo">Corridas concluídas em {nomeMes}: <strong>{brl(resumo.total)}</strong></p></div></div>
-            <Barras dados={resumo.porFornecedor} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
+            <div className="repor-topo"><div><h3>Corridas por dia em {nomeMes}</h3><p className="repor-resumo">{resumo?.total ?? 0} corrida(s) · valor informado <strong>{brl(resumo?.valor_total ?? 0)}</strong></p></div></div>
+            <GraficoDias dias={resumo?.por_dia ?? []} />
           </section>
           <section className="card">
-            <div className="repor-topo"><div><h3>Valor por centro de custo</h3><p className="repor-resumo">Mesmo período, pelo valor que o fornecedor informou.</p></div></div>
-            <Barras dados={resumo.porCentro} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
+            <div className="repor-topo"><div><h3>Valor por fornecedor</h3></div><Link href="/relatorios" className="link-botao">Relatórios</Link></div>
+            <Barras dados={(resumo?.por_fornecedor ?? []).filter((f) => f.valor > 0)} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
+          </section>
+          <section className="card">
+            <div className="repor-topo"><div><h3>Valor por centro de custo</h3></div></div>
+            <Barras dados={(resumo?.por_centro ?? []).filter((c) => c.valor > 0)} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
           </section>
         </div>
       </div>
@@ -128,16 +138,15 @@ export default function VisaoGeral() {
   );
 }
 
-function Barras({ dados, vazio }: { dados: { nome: string; valor: number }[]; vazio: string }) {
-  if (!dados.length) return <p className="empty">{vazio}</p>;
-  const max = Math.max(...dados.map((d) => d.valor), 1);
+function GraficoDias({ dias }: { dias: { dia: string; qtd: number; valor: number }[] }) {
+  if (!dias.length) return <p className="empty">Sem corridas no mês.</p>;
+  const max = Math.max(...dias.map((d) => d.qtd), 1);
   return (
-    <div className="barras">
-      {dados.map((d) => (
-        <div key={d.nome} className="barra-linha">
-          <span title={d.nome}>{d.nome}</span>
-          <div className="cobertura-trilho"><div className="cobertura-barra" style={{ width: `${(d.valor / max) * 100}%`, background: "var(--gold)" }} /></div>
-          <b>{brl(d.valor)}</b>
+    <div className="grafico-mensal" role="img" aria-label="Quantidade de corridas por dia">
+      {dias.map((d) => (
+        <div key={d.dia} className="grafico-mes" title={`${d.dia.slice(8)}/${d.dia.slice(5, 7)}: ${d.qtd} corrida(s), ${brl(d.valor)}`}>
+          <div className="grafico-barras"><div className="grafico-barra saida" style={{ height: `${(d.qtd / max) * 100}%`, width: "60%" }} /></div>
+          <small>{d.dia.slice(8)}</small>
         </div>
       ))}
     </div>

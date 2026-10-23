@@ -180,7 +180,7 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
                     {(opcoes[f.key] ?? []).map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
                   </select>
                 ) : (
-                  <input type={f.type === "email" ? "email" : "text"} inputMode={f.mascara || f.type === "number" ? "numeric" : f.type === "email" ? "email" : undefined}
+                  <input type={f.type === "email" ? "email" : "text"} inputMode={f.mascara ? "numeric" : f.type === "number" ? "decimal" : f.type === "email" ? "email" : undefined}
                     autoFocus={i === 0} value={form[f.key] ?? ""} placeholder={f.placeholder} maxLength={200}
                     onChange={(e) => setForm({ ...form, [f.key]: aplicarMascara(e.target.value, f.mascara) })} />
                 )}

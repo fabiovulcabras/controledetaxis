@@ -6,6 +6,8 @@ import { TopoPagina } from "@/components/Formulario";
 import { formatarHora } from "@/lib/datas";
 import { formatarTelefone, normalizarTelefone } from "@/lib/telefone";
 import { useRetorno } from "@/components/Retorno";
+import { useTempoReal } from "@/lib/hooks/useTempoReal";
+import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 
 type Mensagem = { id: string; direcao: "entrada" | "saida"; telefone: string; template: string | null; conteudo: any; criado_em: string };
 type Pessoa = { id: string; nome: string; telefone_whatsapp: string };
@@ -46,11 +48,10 @@ export default function Simulador() {
     if (error) setErr(error.message);
     setMensagens((data ?? []) as Mensagem[]);
   };
-  useEffect(() => {
-    void carregar();
-    const t = setInterval(() => void carregar(), 1500);
-    return () => clearInterval(t);
-  }, [telefones.join(",")]);
+  useEffect(() => { void carregar(); }, [telefones.join(",")]);
+  // Mensagens novas chegam em tempo real; a consulta periódica é só uma rede de segurança
+  useTempoReal(["mensagens"], () => void carregar());
+  useIntervaloVisivel(() => void carregar(), 8000);
 
   const enviar = async (telefone: string, msg: { texto?: string; botaoId?: string; localizacao?: unknown }) => {
     setErr(""); setEnviando(true);
