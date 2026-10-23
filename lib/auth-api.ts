@@ -29,8 +29,8 @@ export async function usuarioDaRequisicao(req: Request, perfis: Perfil[]): Promi
 /** Mensagem de erro legível para devolver ao painel. */
 export function mensagemDeErro(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/relation .* does not exist|could not find the (table|function)/i.test(msg)) {
-    return `${msg} — o banco parece incompleto. Rode supabase/schema.sql no SQL Editor do Supabase.`;
+  if (/relation .* does not exist|could not find the (table|function|'.*' column)|column .* does not exist/i.test(msg)) {
+    return `${msg} — o banco está desatualizado. Rode no SQL Editor do Supabase os arquivos da pasta supabase/ que ainda não rodou (schema.sql e as migrações 002, 003...).`;
   }
   return msg;
 }

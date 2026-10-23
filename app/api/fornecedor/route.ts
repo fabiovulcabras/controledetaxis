@@ -1,10 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { alertar, avisarSolicitante, cancelarCorrida } from "@/lib/bot/acoes";
-import { enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
+import { alertar, avisarSolicitante, cancelarCorrida, reenviarAutomatico, valorEsperado, verificarValor } from "@/lib/bot/acoes";
+import { despacharSaidas } from "@/lib/whatsapp/transporte";
 import {
-  linkWhatsApp, msgAceitaSolicitante, msgNaoRealizadaSolicitante, msgRecusaPlanejamento, msgRecusaSolicitante, urlApp, type LinkWhatsApp,
+  linkWhatsApp, msgAceitaSolicitante, msgNaoRealizadaSolicitante, msgNovaCorridaFornecedor, msgRecusaPlanejamento, msgRecusaSolicitante, urlApp, type LinkWhatsApp,
 } from "@/lib/whatsapp/link";
-import { corridaPorTokenFornecedor, primeiroTelefonePlanejamento, repoServidor, tokenValido } from "@/lib/links-api";
+import { corridaPorTokenFornecedor, dentroDoLimite, muitasTentativas, primeiroTelefonePlanejamento, repoServidor, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS } from "@/lib/status";
 import { brl, formatarDataHora, lerValor } from "@/lib/datas";
@@ -17,6 +17,7 @@ const LINK_ANTIGO = "Este link não vale mais. A corrida pode ter passado para o
 export async function GET(req: Request) {
   const token = new URL(req.url).searchParams.get("token");
   if (!tokenValido(token)) return erroJson("Link inválido.", 404);
+  if (!(await dentroDoLimite(`fornecedor-ler:${token}`, 60, 60))) return muitasTentativas();
   try {
     const c = await corridaPorTokenFornecedor(token);
     if (!c) return erroJson(LINK_ANTIGO, 404);
@@ -29,6 +30,8 @@ export async function GET(req: Request) {
       solicitante: sol?.nome ?? "—", prazo: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? formatarDataHora(c.prazo_resposta_em) : null,
       motorista: c.motorista ?? null, placa: c.veiculo_placa ?? null, minutos: c.eta_minutos ?? null,
       valor: c.valor_informado ?? null, motivo_cancelamento: c.motivo_cancelamento ?? null,
+      distancia_km: c.distancia_km ?? null, valor_esperado: valorEsperado(c, forn),
+      prazo_iso: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? c.prazo_resposta_em : null,
       mapa_origem: c.origem_lat != null && c.origem_lng != null ? `https://www.google.com/maps?q=${c.origem_lat},${c.origem_lng}` : `https://www.google.com/maps/search/${encodeURIComponent(c.origem)}`,
     });
   } catch (err) {
@@ -40,6 +43,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const corpo = await req.json().catch(() => null);
   if (!tokenValido(corpo?.token)) return erroJson("Link inválido.", 404);
+  if (!(await dentroDoLimite(`fornecedor-agir:${corpo.token}`, 20, 60))) return muitasTentativas();
   try {
     const c = await corridaPorTokenFornecedor(corpo.token);
     if (!c) return erroJson(LINK_ANTIGO, 404);
@@ -71,10 +75,19 @@ export async function POST(req: Request) {
       if (!["enviada", "sem_resposta"].includes(c.status)) return situacao();
       const motivo = String(corpo.motivo ?? "").trim() || "Recusada pelo fornecedor";
       const atual = await repo.mudarStatus(c.id, "recusada", "fornecedor", `${motivo} (pelo link)`, { motivo_recusa: motivo });
-      const plan = await primeiroTelefonePlanejamento(repo);
-      if (plan) links.push({ rotulo: "Avisar o planejamento pelo WhatsApp", url: linkWhatsApp(plan, msgRecusaPlanejamento(atual, nomeForn, sol?.nome ?? "-", base)) });
-      if (sol) links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, msgRecusaSolicitante(atual, nomeForn)) });
-      saidas.push(...await alertar(repo, atual, "recusada pelo fornecedor"));
+      // Reenvio automático: a corrida passa ao próximo fornecedor; o solicitante recebe o link pronto para mandar a ele
+      const r = await reenviarAutomatico(repo, atual, new Date());
+      if (r) {
+        const linkProximo = linkWhatsApp(r.fornecedor.telefone_whatsapp, msgNovaCorridaFornecedor(r.corrida, sol?.nome ?? "-", base));
+        if (sol) links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp,
+          `${nomeForn} não poderá atender a corrida ${c.protocolo}. Ela foi passada para ${r.fornecedor.nome}. Toque para enviar a ele:\n${linkProximo}`) });
+        saidas.push(...r.saidas, ...await avisarSolicitante(repo, r.corrida, `${nomeForn} não atendeu a corrida ${c.protocolo}. Enviamos a ${r.fornecedor.nome}.`, `recusada; enviada a ${r.fornecedor.nome}`));
+      } else {
+        const plan = await primeiroTelefonePlanejamento(repo);
+        if (plan) links.push({ rotulo: "Avisar o planejamento pelo WhatsApp", url: linkWhatsApp(plan, msgRecusaPlanejamento(atual, nomeForn, sol?.nome ?? "-", base)) });
+        if (sol) links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, msgRecusaSolicitante(atual, nomeForn)) });
+        saidas.push(...await alertar(repo, atual, "recusada pelo fornecedor"));
+      }
     } else if (acao === "embarque") {
       if (c.status !== "aceita") return situacao();
       await repo.mudarStatus(c.id, "em_andamento", "fornecedor", "Passageiro embarcou (pelo link)");
@@ -83,8 +96,7 @@ export async function POST(req: Request) {
       const valor = typeof corpo.valor === "number" ? corpo.valor : lerValor(String(corpo.valor ?? ""));
       if (valor == null || valor <= 0) return erroJson("Informe o valor da corrida, por exemplo 68,50.");
       const atual = await repo.mudarStatus(c.id, "concluida", "fornecedor", `Concluída, valor informado ${brl(valor)} (pelo link)`, { valor_informado: valor });
-      const cc = c.centro_custo_id ? await repo.centroCusto(c.centro_custo_id) : null;
-      if (cc?.teto_por_corrida && valor > Number(cc.teto_por_corrida)) saidas.push(...await alertar(repo, atual, `valor ${brl(valor)} acima do teto de ${brl(Number(cc.teto_por_corrida))}`));
+      saidas.push(...await verificarValor(repo, atual, valor, new Date()));
     } else if (acao === "nao_realizada") {
       if (!["aceita", "em_andamento"].includes(c.status)) return situacao();
       const r = await cancelarCorrida(repo, c, "Fornecedor informou que a corrida não foi realizada", "fornecedor");
@@ -94,8 +106,8 @@ export async function POST(req: Request) {
       return erroJson("Ação desconhecida.");
     }
 
-    // Com a API oficial ligada, os avisos saem sozinhos; sem ela, ficam os botões de WhatsApp
-    if (modoEnvio() === "whatsapp" && saidas.length) await enviarSaidas(supabaseAdmin(), saidas, "whatsapp");
+    // Com a API oficial ligada, os avisos saem sozinhos; sem ela, ficam os botões de WhatsApp (e-mails de alerta saem nos dois casos)
+    await despacharSaidas(supabaseAdmin(), saidas);
     return Response.json({ ok: true, links });
   } catch (err) {
     return erroJson(mensagemDeErro(err).replace(/^Atualizar corrida: /, ""), 500);

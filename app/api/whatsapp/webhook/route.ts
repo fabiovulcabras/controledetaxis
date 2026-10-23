@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { processarEntrada } from "@/lib/bot/motor";
 import { assinaturaValida, lerStatusEntrega, lerWebhook } from "@/lib/whatsapp/meta";
-import { enviarSaidas, modoEnvio, registrarEntrada } from "@/lib/whatsapp/transporte";
+import { despacharSaidas, registrarEntrada, vincularEntrada } from "@/lib/whatsapp/transporte";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +32,11 @@ export async function POST(req: Request) {
   const repo = new RepoSupabase(db);
   for (const { entrada, waId, bruto: msg } of lerWebhook(corpo)) {
     try {
-      if (!(await registrarEntrada(db, entrada, "whatsapp", waId, msg))) continue; // já processada
+      const id = await registrarEntrada(db, entrada, "whatsapp", waId, msg);
+      if (!id) continue; // já processada
       const saidas = await processarEntrada(entrada, repo, new Date());
-      await enviarSaidas(db, saidas, modoEnvio());
+      await vincularEntrada(db, id, saidas);
+      await despacharSaidas(db, saidas);
     } catch (err) {
       console.error("Erro ao processar mensagem do WhatsApp", err instanceof Error ? err.message : err);
     }

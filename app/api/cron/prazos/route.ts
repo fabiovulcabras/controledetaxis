@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { enviarLembretes, verificarPrazos } from "@/lib/bot/acoes";
-import { enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
+import { despacharSaidas, enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +16,15 @@ export async function GET(req: Request) {
   const repo = new RepoSupabase(db);
   const agora = new Date();
   try {
-    const prazos = await verificarPrazos(repo, agora);
+    // Reenvio automático no prazo vencido só com a API oficial: no modo por links ninguém levaria a mensagem ao próximo fornecedor
+    const oficial = modoEnvio() === "whatsapp";
+    const prazos = await verificarPrazos(repo, agora, { reenviar: oficial });
     const lembretes = await enviarLembretes(repo, agora);
-    await enviarSaidas(db, [...prazos, ...lembretes], modoEnvio());
+    if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);
+    else {
+      await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica visível no Simulador e no histórico
+      await despacharSaidas(db, prazos); // e-mails de alerta, se configurados
+    }
     return Response.json({ ok: true, mensagens: prazos.length + lembretes.length });
   } catch (err) {
     console.error("Erro no agendador", err);

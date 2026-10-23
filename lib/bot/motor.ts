@@ -2,7 +2,7 @@ import type { Corrida, Entrada, Fornecedor, Opcao, Repo, Saida, Solicitante } fr
 import { CANCELAVEIS, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
-import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, telefonesPlanejamento } from "./acoes";
+import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
 
 /**
  * Motor do bot: recebe uma mensagem e devolve as mensagens a enviar.
@@ -335,8 +335,15 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     if (acao === "RECUSAR") {
       if (!["enviada", "sem_resposta"].includes(c.status)) return [responder(`A corrida ${c.protocolo} já está como "${STATUS[c.status].rotulo}".`)];
       const atual = await repo.mudarStatus(c.id, "recusada", "fornecedor", "Recusada pelo fornecedor", { motivo_recusa: "Recusada pelo fornecedor" });
+      await repo.apagarConversa(tel);
+      const ok = responder(`Recusa da corrida ${c.protocolo} registrada. Obrigado por avisar.`, undefined, c.id);
+      const r = await reenviarAutomatico(repo, atual, agora);
+      if (r) {
+        return [ok, ...r.saidas, ...await avisarSolicitante(repo, r.corrida,
+          `O fornecedor ${forn.nome} não atendeu a corrida ${c.protocolo}. Enviamos a ${r.fornecedor.nome} e avisaremos quando responder.`, `recusada; enviada a ${r.fornecedor.nome}`)];
+      }
       return [
-        responder(`Recusa da corrida ${c.protocolo} registrada. Obrigado por avisar.`, undefined, c.id),
+        ok,
         ...await avisarSolicitante(repo, atual, `O fornecedor ${forn.nome} não atendeu a corrida ${c.protocolo}. O planejamento foi avisado e vai providenciar outro fornecedor.`, "o fornecedor recusou; o planejamento foi avisado"),
         ...await alertar(repo, atual, "recusada pelo fornecedor"),
       ];
@@ -387,12 +394,10 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     }
     const atual = await repo.mudarStatus(c.id, "concluida", "fornecedor", `Concluída, valor informado ${brl(valor)}`, { valor_informado: valor });
     await repo.apagarConversa(tel);
-    const saidas: Saida[] = [responder(`Valor de ${brl(valor)} registrado para a corrida ${c.protocolo}. Obrigado!`, undefined, c.id)];
-    const cc = c.centro_custo_id ? await repo.centroCusto(c.centro_custo_id) : null;
-    if (cc?.teto_por_corrida && valor > Number(cc.teto_por_corrida)) {
-      saidas.push(...await alertar(repo, atual, `valor ${brl(valor)} acima do teto de ${brl(Number(cc.teto_por_corrida))} do ${cc.codigo}`));
-    }
-    return saidas;
+    return [
+      responder(`Valor de ${brl(valor)} registrado para a corrida ${c.protocolo}. Obrigado!`, undefined, c.id),
+      ...await verificarValor(repo, atual, valor, agora),
+    ];
   }
 
   return [responder("Para responder às corridas, use os botões das mensagens de cada uma. Depois de aceitar, envie aqui os dados do motorista; ao final, o valor.")];

@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { processarEntrada } from "@/lib/bot/motor";
-import { enviarSaidas, registrarEntrada } from "@/lib/whatsapp/transporte";
+import { enviarSaidas, registrarEntrada, vincularEntrada } from "@/lib/whatsapp/transporte";
 import { normalizarTelefone } from "@/lib/telefone";
 import { erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 import type { Entrada } from "@/lib/bot/tipos";
@@ -20,8 +20,9 @@ export async function POST(req: Request) {
 
   try {
     const db = supabaseAdmin();
-    await registrarEntrada(db, entrada, "simulado");
+    const id = await registrarEntrada(db, entrada, "simulado");
     const saidas = await processarEntrada(entrada, new RepoSupabase(db), new Date());
+    await vincularEntrada(db, id, saidas);
     await enviarSaidas(db, saidas, "simulado");
     return Response.json({ ok: true, respostas: saidas.length });
   } catch (err) {

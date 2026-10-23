@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { avisarSolicitante, cancelarCorrida, despachar } from "@/lib/bot/acoes";
-import { enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
+import { despacharSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
 import { clienteDoUsuario, erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 import { brl } from "@/lib/datas";
 import { linkWhatsApp, msgCancelamentoFornecedor, msgNovaCorridaFornecedor, urlApp, type LinkWhatsApp } from "@/lib/whatsapp/link";
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     }
     // Sem a API oficial, nada sai sozinho: o painel mostra os botões de WhatsApp para enviar à mão
     const oficial = modoEnvio() === "whatsapp";
-    if (saidas.length && oficial) await enviarSaidas(supabaseAdmin(), saidas, "whatsapp");
+    await despacharSaidas(supabaseAdmin(), saidas);
     return Response.json({ ok: true, mensagens: oficial ? saidas.length : 0, links: oficial ? [] : links });
   } catch (err) {
     return erroJson(mensagemDeErro(err).replace(/^Atualizar corrida: /, ""));

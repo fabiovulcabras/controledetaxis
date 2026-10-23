@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/UI";
 import { Campo, Filtros, PainelLateral, TopoPagina, normalizarTexto } from "@/components/Formulario";
 import { formatarTelefone, normalizarTelefone, soDigitos } from "@/lib/telefone";
+import { useRetorno } from "@/components/Retorno";
 
 export type Opcoes = { tabela: string; valor?: string; rotulo: (r: any) => string };
 export type CampoCrud = {
@@ -32,6 +33,7 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
   /** Botões a mais na coluna Ações de cada linha. */
   acoesExtras?: (registro: any, recarregar: () => Promise<void>) => ReactNode;
 }) {
+  const { confirmar, avisar } = useRetorno();
   const [rows, setRows] = useState<any[]>([]);
   const [opcoes, setOpcoes] = useState<Record<string, { valor: string; rotulo: string }[]>>({});
   const [form, setForm] = useState<Record<string, string>>({});
@@ -108,15 +110,15 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
     const { error } = editandoId ? await supabase.from(table).update(clean).eq("id", editandoId) : await supabase.from(table).insert(clean);
     setSalvando(false);
     if (error) { setErr(mensagemErro(error)); return; }
-    setOk(`${clean[fields[0].key]} ${editandoId ? "atualizado" : "cadastrado"}.`);
+    avisar(`${clean[fields[0].key]} ${editandoId ? "atualizado" : "cadastrado"}.`);
     fechar(); await load(); aoSalvar?.();
   };
 
   const toggle = async (r: any) => {
-    if (r.ativo && !window.confirm(`Desativar "${r[fields[0].key]}"? O histórico é mantido e ele deixa de aparecer nas novas operações.`)) return;
+    if (r.ativo && !(await confirmar({ titulo: `Desativar "${r[fields[0].key]}"?`, texto: "O histórico é mantido e o cadastro deixa de aparecer nas novas operações.", confirmar: "Desativar", perigo: true }))) return;
     setErr(""); setOk("");
     const { error } = await supabase.from(table).update({ ativo: !r.ativo }).eq("id", r.id);
-    if (error) setErr(mensagemErro(error)); else { setOk(`${r[fields[0].key]} ${r.ativo ? "desativado" : "reativado"}.`); await load(); aoSalvar?.(); }
+    if (error) setErr(mensagemErro(error)); else { avisar(`${r[fields[0].key]} ${r.ativo ? "desativado" : "reativado"}.`); await load(); aoSalvar?.(); }
   };
 
   const noFiltro = (r: any, f: Filtro) => semAtivo || f === "todos" ? true : f === "ativos" ? r.ativo : !r.ativo;

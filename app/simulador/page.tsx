@@ -5,6 +5,7 @@ import { chamarApi } from "@/lib/api";
 import { TopoPagina } from "@/components/Formulario";
 import { formatarHora } from "@/lib/datas";
 import { formatarTelefone, normalizarTelefone } from "@/lib/telefone";
+import { useRetorno } from "@/components/Retorno";
 
 type Mensagem = { id: string; direcao: "entrada" | "saida"; telefone: string; template: string | null; conteudo: any; criado_em: string };
 type Pessoa = { id: string; nome: string; telefone_whatsapp: string };
@@ -19,6 +20,7 @@ export default function Simulador() {
   const [mensagens, setMensagens] = useState<Mensagem[]>([]);
   const [err, setErr] = useState("");
   const [enviando, setEnviando] = useState(false);
+  const { confirmar } = useRetorno();
 
   useEffect(() => {
     (async () => {
@@ -57,7 +59,7 @@ export default function Simulador() {
     finally { setEnviando(false); }
   };
   const limpar = async () => {
-    if (!window.confirm("Apagar as mensagens simuladas e as conversas em andamento destes números? As corridas já criadas continuam no painel.")) return;
+    if (!(await confirmar({ titulo: "Limpar as conversas simuladas?", texto: "Apaga as mensagens simuladas e as conversas em andamento destes números. As corridas já criadas continuam no painel.", confirmar: "Limpar", perigo: true }))) return;
     await chamarApi("/api/simulador", { telefones }, "DELETE").catch((e) => setErr(e.message));
     await carregar();
   };

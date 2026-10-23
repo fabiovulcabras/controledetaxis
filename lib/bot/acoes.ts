@@ -1,6 +1,6 @@
 import type { Corrida, Fornecedor, Repo, Saida } from "./tipos";
 import type { OrigemEvento } from "../status";
-import { formatarDataHora, formatarHora } from "../datas";
+import { brl, formatarDataHora, formatarHora } from "../datas";
 import { textoTemplate } from "../whatsapp/templates";
 
 const URL_PAINEL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
@@ -56,8 +56,10 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
   const prazo = new Date(agora.getTime() + minutos * 60_000);
   // Corrida que muda de fornecedor ganha link novo: o link antigo deixa de valer
   const trocou = !!c.fornecedor_id && c.fornecedor_id !== forn.id;
+  const tentados = [...new Set([...(c.fornecedores_tentados ?? []), ...(c.fornecedor_id ? [c.fornecedor_id] : []), forn.id])];
   const atual = await repo.mudarStatus(c.id, "enviada", origem, obs ?? `Enviada a ${forn.nome}`, {
-    fornecedor_id: forn.id, prazo_resposta_em: prazo.toISOString(), ...(trocou ? { token_fornecedor: novoToken() } : {}),
+    fornecedor_id: forn.id, prazo_resposta_em: prazo.toISOString(), fornecedores_tentados: tentados,
+    ...(trocou ? { token_fornecedor: novoToken() } : {}),
   });
   const sol = await repo.solicitante(c.solicitante_id);
   const parametros = [
@@ -72,6 +74,52 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
       template: { nome: "nova_corrida_fornecedor", parametros, botoes: [`ACEITAR:${c.protocolo}`, `RECUSAR:${c.protocolo}`], sempre: true },
     }],
   };
+}
+
+/** Próximo fornecedor ativo, pela prioridade, que ainda não recebeu esta corrida. */
+export async function proximoFornecedor(repo: Repo, c: Corrida): Promise<Fornecedor | null> {
+  const tentados = new Set([...(c.fornecedores_tentados ?? []), ...(c.fornecedor_id ? [c.fornecedor_id] : [])]);
+  return (await repo.fornecedoresAtivos()).filter((f) => !tentados.has(f.id)).sort((a, b) => a.prioridade - b.prioridade)[0] ?? null;
+}
+
+/**
+ * Reenvio automático (parâmetro reenvio_automatico): passa a corrida recusada ou sem resposta ao próximo fornecedor.
+ * Devolve null quando está desligado ou não sobrou fornecedor; nesse caso o planejamento trata pelo painel.
+ */
+export async function reenviarAutomatico(repo: Repo, c: Corrida, agora: Date): Promise<{ corrida: Corrida; fornecedor: Fornecedor; saidas: Saida[] } | null> {
+  const ligado = String((await repo.parametro("reenvio_automatico")) ?? "sim").trim().toLowerCase();
+  if (ligado === "nao" || ligado === "não") return null;
+  const forn = await proximoFornecedor(repo, c);
+  if (!forn) return null;
+  const r = await despachar(repo, c, forn, agora, "sistema", `Reenviada automaticamente a ${forn.nome}`);
+  return { corrida: r.corrida, fornecedor: forn, saidas: r.saidas };
+}
+
+/** Valor esperado do trajeto pela tarifa do fornecedor (bandeirada + km), quando há distância estimada. */
+export function valorEsperado(c: Pick<Corrida, "distancia_km">, forn: Fornecedor | null): number | null {
+  if (!forn || c.distancia_km == null || forn.valor_km == null) return null;
+  return Math.round((Number(forn.bandeirada ?? 0) + Number(forn.valor_km) * Number(c.distancia_km)) * 100) / 100;
+}
+
+/** Confere o valor informado contra o teto do centro de custo, a tarifa do trajeto e o limite mensal da pessoa. */
+export async function verificarValor(repo: Repo, c: Corrida, valor: number, agora: Date): Promise<Saida[]> {
+  const problemas: string[] = [];
+  const cc = c.centro_custo_id ? await repo.centroCusto(c.centro_custo_id) : null;
+  if (cc?.teto_por_corrida && valor > Number(cc.teto_por_corrida)) problemas.push(`valor ${brl(valor)} acima do teto de ${brl(Number(cc.teto_por_corrida))} do ${cc.codigo}`);
+  const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
+  const esperado = valorEsperado(c, forn);
+  const tolerancia = await numero(repo, "tolerancia_trajeto_pct", 30);
+  if (esperado != null && valor > esperado * (1 + tolerancia / 100)) {
+    problemas.push(`valor ${brl(valor)} acima do esperado para ${Number(c.distancia_km).toFixed(1)} km (${brl(esperado)})`);
+  }
+  const sol = await repo.solicitante(c.solicitante_id);
+  if (sol?.limite_mensal) {
+    const gasto = await repo.gastoDoMes(sol.id, agora);
+    if (gasto > Number(sol.limite_mensal)) problemas.push(`${sol.nome} passou do limite mensal: ${brl(gasto)} de ${brl(Number(sol.limite_mensal))}`);
+  }
+  const saidas: Saida[] = [];
+  for (const p of problemas) saidas.push(...await alertar(repo, c, p));
+  return saidas;
 }
 
 /** Cancela e avisa quem precisa saber. */
@@ -94,11 +142,18 @@ export async function cancelarCorrida(repo: Repo, c: Corrida, motivo: string, or
 }
 
 /** Marca como Sem resposta as corridas cujo prazo venceu. Rodado pelo agendador (/api/cron/prazos). */
-export async function verificarPrazos(repo: Repo, agora: Date): Promise<Saida[]> {
+export async function verificarPrazos(repo: Repo, agora: Date, opcoes: { reenviar?: boolean } = {}): Promise<Saida[]> {
   const saidas: Saida[] = [];
   for (const c of await repo.corridasComPrazoVencido(agora)) {
     const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
     const atual = await repo.mudarStatus(c.id, "sem_resposta", "sistema", "Prazo de resposta do fornecedor vencido");
+    // Com envio automático (API oficial), tenta o próximo fornecedor antes de incomodar o planejamento
+    const r = opcoes.reenviar ? await reenviarAutomatico(repo, atual, agora) : null;
+    if (r) {
+      saidas.push(...r.saidas, ...await avisarSolicitante(repo, r.corrida,
+        `O fornecedor ${forn?.nome ?? ""} não respondeu à corrida ${c.protocolo}. Enviamos a ${r.fornecedor.nome}.`, `sem resposta; enviada a ${r.fornecedor.nome}`));
+      continue;
+    }
     saidas.push(...await alertar(repo, atual, "sem resposta do fornecedor no prazo"));
     saidas.push(...await avisarSolicitante(repo, atual,
       `O fornecedor ${forn?.nome ?? ""} ainda não respondeu à corrida ${c.protocolo}. O planejamento foi avisado e vai providenciar outro fornecedor.`,

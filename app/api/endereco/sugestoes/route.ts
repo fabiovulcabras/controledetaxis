@@ -1,6 +1,9 @@
 import { sugestoesDoPhoton } from "@/lib/endereco";
 
+import { dentroDoLimite, muitasTentativas, solicitantePorToken, tokenValido } from "@/lib/links-api";
+
 export const dynamic = "force-dynamic";
+const LIMITE = 60;
 
 /**
  * Sugestões de endereço enquanto a pessoa digita (Photon, serviço gratuito sobre o OpenStreetMap, sem chave).
@@ -8,6 +11,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   const u = new URL(req.url);
+  // Só para quem está com um link de pedido válido, e com limite por minuto: evita que a rota vire um proxy aberto
+  const token = u.searchParams.get("t");
+  if (!tokenValido(token) || !(await solicitantePorToken(token).catch(() => null))) return Response.json({ erro: "Link inválido." }, { status: 403 });
+  if (!(await dentroDoLimite(`sugestao:${token}`, LIMITE, 60))) return muitasTentativas();
   const q = (u.searchParams.get("q") ?? "").trim().slice(0, 120);
   if (q.length < 3) return Response.json({ sugestoes: [] });
   const lat = Number(u.searchParams.get("lat"));

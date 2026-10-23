@@ -27,6 +27,23 @@ export function PainelLateral({ titulo, subtitulo, onFechar, ocupado = false, la
   );
 }
 
+/**
+ * Grupo de formulário para conteúdos com botões (escolhas, atalhos, listas de sugestão).
+ * Usa <div> no lugar de <label>: tocar num botão dentro de um label refoca o campo e reabre o teclado no celular.
+ */
+export function GrupoCampo({ rotulo, obrigatorio, ajuda, htmlFor, children }: {
+  rotulo: ReactNode; obrigatorio?: boolean; ajuda?: ReactNode; htmlFor?: string; children: ReactNode;
+}) {
+  return (
+    <div className="grupo-campo campo" role="group">
+      {htmlFor ? <label htmlFor={htmlFor} className="campo-rotulo">{rotulo}{obrigatorio && <span className="obrigatorio" aria-hidden="true"> *</span>}</label>
+        : <span className="campo-rotulo">{rotulo}{obrigatorio && <span className="obrigatorio" aria-hidden="true"> *</span>}</span>}
+      {children}
+      {ajuda && <div className="campo-ajuda">{ajuda}</div>}
+    </div>
+  );
+}
+
 /** Campo de formulário com rótulo, obrigatoriedade e uma linha de ajuda, aviso ou erro. */
 export function Campo({ rotulo, obrigatorio, erro, aviso, ajuda, largo, children }: {
   rotulo: ReactNode; obrigatorio?: boolean; erro?: string; aviso?: string; ajuda?: ReactNode; largo?: boolean; children: ReactNode;

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
 import type { OrigemEvento, StatusCorrida } from "../status";
 import { variantesTelefone } from "../telefone";
+import { inicioDoMesSP } from "../datas";
 
 const falhar = (contexto: string, error: { message: string } | null) => {
   if (error) throw new Error(`${contexto}: ${error.message}`);
@@ -10,6 +11,8 @@ const falhar = (contexto: string, error: { message: string } | null) => {
 /** Repositório do bot sobre o Supabase. Use com o cliente service role (servidor). */
 export class RepoSupabase implements Repo {
   private cacheParametros: Record<string, string> | null = null;
+  /** Cadastros mudam pouco: cada um é lido no máximo uma vez por requisição. Corridas nunca vão para o cache. */
+  private cache = new Map<string, Promise<any>>();
   constructor(private db: SupabaseClient) {}
 
   async solicitantePorTelefone(t: string) {
@@ -22,10 +25,10 @@ export class RepoSupabase implements Repo {
     falhar("Buscar fornecedor", error);
     return (data?.[0] as Fornecedor) ?? null;
   }
-  async solicitante(id: string) { return this.um<Solicitante>("solicitantes", id); }
-  async fornecedor(id: string) { return this.um<Fornecedor>("fornecedores", id); }
-  async unidade(id: string) { return this.um<Unidade>("unidades", id); }
-  async centroCusto(id: string) { return this.um<CentroCusto>("centros_custo", id); }
+  async solicitante(id: string) { return this.emCache<Solicitante>("solicitantes", id); }
+  async fornecedor(id: string) { return this.emCache<Fornecedor>("fornecedores", id); }
+  async unidade(id: string) { return this.emCache<Unidade>("unidades", id); }
+  async centroCusto(id: string) { return this.emCache<CentroCusto>("centros_custo", id); }
   async fornecedoresAtivos() {
     const { data, error } = await this.db.from("fornecedores").select("*").eq("ativo", true).order("prioridade");
     falhar("Listar fornecedores", error);
@@ -95,6 +98,19 @@ export class RepoSupabase implements Repo {
       .is("lembrete_enviado_em", null).gt("data_hora_prevista", agora.toISOString()).lte("data_hora_prevista", ate.toISOString()).limit(50);
     falhar("Corridas para lembrete", error);
     return (data ?? []) as Corrida[];
+  }
+
+  async gastoDoMes(id: string, agora: Date) {
+    const { data, error } = await this.db.from("corridas").select("valor_informado").eq("solicitante_id", id)
+      .in("status", ["concluida", "validada", "contestada"]).gte("data_hora_prevista", inicioDoMesSP(agora).toISOString());
+    falhar("Gasto do mês", error);
+    return (data ?? []).reduce((s: number, c: any) => s + Number(c.valor_informado ?? 0), 0);
+  }
+
+  private emCache<T>(tabela: string, id: string): Promise<T | null> {
+    const chave = `${tabela}:${id}`;
+    if (!this.cache.has(chave)) this.cache.set(chave, this.um<T>(tabela, id));
+    return this.cache.get(chave)!;
   }
 
   private async um<T>(tabela: string, id: string): Promise<T | null> {

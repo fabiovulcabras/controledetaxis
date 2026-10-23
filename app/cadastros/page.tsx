@@ -7,6 +7,7 @@ import { Campo, PainelLateral, TopoPagina } from "@/components/Formulario";
 import { useApp } from "@/components/AuthGate";
 import { formatarTelefone } from "@/lib/telefone";
 import { linkWhatsApp, msgLinkPedido } from "@/lib/whatsapp/link";
+import { useRetorno } from "@/components/Retorno";
 
 type Aba = "solicitantes" | "fornecedores" | "centros" | "unidades" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
@@ -74,6 +75,7 @@ export default function Cadastros() {
 
 /** Envia ao solicitante o link pessoal de pedido, copia ou troca o link (o antigo deixa de valer). */
 function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido?: string | null }; recarregar: () => Promise<void> }) {
+  const { confirmar } = useRetorno();
   const [aberto, setAberto] = useState(false);
   const [msg, setMsg] = useState("");
   const base = typeof window !== "undefined" ? window.location.origin : "";
@@ -82,7 +84,7 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
     try { await navigator.clipboard.writeText(url); setMsg("Link copiado."); } catch { setMsg("Não foi possível copiar; selecione o link e copie."); }
   };
   const trocar = async () => {
-    if (!window.confirm(`Gerar um novo link para ${pessoa.nome}? O link atual para de funcionar na hora.`)) return;
+    if (!(await confirmar({ titulo: `Gerar novo link para ${pessoa.nome}?`, texto: "O link atual para de funcionar na hora. Depois envie o novo para a pessoa.", confirmar: "Gerar novo link", perigo: true }))) return;
     const novo = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
     const { error } = await supabase.from("solicitantes").update({ token_pedido: novo }).eq("id", pessoa.id);
     setMsg(error ? error.message : "Novo link gerado. Envie para a pessoa.");
@@ -118,6 +120,7 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
 }
 
 function Parametros() {
+  const { avisar } = useRetorno();
   const [rows, setRows] = useState<{ chave: string; valor: string; descricao: string | null }[]>([]);
   const [valores, setValores] = useState<Record<string, string>>({});
   const [ok, setOk] = useState("");
@@ -132,7 +135,7 @@ function Parametros() {
   const salvar = async (chave: string) => {
     setOk(""); setErr("");
     const { error } = await supabase.from("parametros").update({ valor: (valores[chave] ?? "").trim() }).eq("chave", chave);
-    if (error) setErr(error.message); else { setOk(`Parâmetro ${chave} salvo.`); await carregar(); }
+    if (error) setErr(error.message); else { avisar(`Parâmetro ${chave} salvo.`); await carregar(); }
   };
   return (
     <>
@@ -163,6 +166,7 @@ function Parametros() {
 const PERFIS: Record<string, string> = { admin: "Administrador", planejamento: "Planejamento", consulta: "Consulta" };
 
 function Usuarios() {
+  const { avisar } = useRetorno();
   const { profile } = useApp();
   const [rows, setRows] = useState<{ id: string; nome: string; perfil: string; ativo: boolean }[]>([]);
   const [ok, setOk] = useState("");
@@ -180,13 +184,13 @@ function Usuarios() {
   const atualizar = async (id: string, campos: Record<string, unknown>, msg: string) => {
     setOk(""); setErr("");
     const { error } = await supabase.from("profiles").update(campos).eq("id", id);
-    if (error) setErr(error.message); else { setOk(msg); await carregar(); }
+    if (error) setErr(error.message); else { avisar(msg); await carregar(); }
   };
   const convidar = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(""); setOcupado(true);
     try {
       await chamarApi("/api/usuarios", form);
-      setOk(`Convite enviado para ${form.email}.`); setConvidando(false); setForm({ nome: "", email: "", perfil: "planejamento" }); await carregar();
+      avisar(`Convite enviado para ${form.email}.`); setConvidando(false); setForm({ nome: "", email: "", perfil: "planejamento" }); await carregar();
     } catch (er) { setErr(er instanceof Error ? er.message : "Não foi possível convidar."); }
     finally { setOcupado(false); }
   };

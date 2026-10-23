@@ -6,9 +6,9 @@ import type { Sugestao } from "@/lib/endereco";
  * Campo de endereço com sugestões enquanto digita. Ao escolher uma sugestão, devolve o texto e as coordenadas;
  * se a pessoa digitar livremente, as coordenadas voltam a null.
  */
-export default function CampoEndereco({ valor, onMudar, placeholder, perto, id }: {
+export default function CampoEndereco({ valor, onMudar, placeholder, perto, id, token }: {
   valor: string; onMudar: (texto: string, lat: number | null, lng: number | null) => void;
-  placeholder?: string; perto?: { lat: number; lng: number } | null; id?: string;
+  placeholder?: string; perto?: { lat: number; lng: number } | null; id?: string; token: string;
 }) {
   const [sugestoes, setSugestoes] = useState<Sugestao[]>([]);
   const [aberto, setAberto] = useState(false);
@@ -25,7 +25,7 @@ export default function CampoEndereco({ valor, onMudar, placeholder, perto, id }
     const t = setTimeout(async () => {
       const n = ++pedido.current;
       setBuscando(true);
-      const params = new URLSearchParams({ q });
+      const params = new URLSearchParams({ q, t: token });
       if (perto) { params.set("lat", String(perto.lat)); params.set("lng", String(perto.lng)); }
       const r = await fetch(`/api/endereco/sugestoes?${params}`).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};

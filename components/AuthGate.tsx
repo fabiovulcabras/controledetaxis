@@ -5,6 +5,7 @@ import { supabase, supabaseConfigurado } from "@/lib/supabase";
 import BrandMark from "@/components/BrandMark";
 import Sidebar from "@/components/Sidebar";
 import { Button, Input, PageHeader } from "@/components/UI";
+import { RetornoProvider } from "@/components/Retorno";
 
 export type Profile = { id: string; nome: string; perfil: "admin" | "planejamento" | "consulta"; ativo?: boolean };
 export type NivelMenu = "todos" | "planejamento" | "admin";
@@ -85,6 +86,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   return (
     <AppCtx.Provider value={{ profile, planejamento, admin }}>
+     <RetornoProvider>
       <div className="shell">
         <header className="mobile-header">
           <button type="button" className="menu-toggle" aria-label={menuOpen ? "Fechar menu" : "Abrir menu"} aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)}>
@@ -97,6 +99,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           onSignOut={() => { void supabase.auth.signOut(); }} open={menuOpen} onClose={() => setMenuOpen(false)} />
         <main className="main">{bloqueado ? <p className="empty">Seu perfil não tem acesso a esta tela.</p> : children}</main>
       </div>
+     </RetornoProvider>
     </AppCtx.Provider>
   );
 }

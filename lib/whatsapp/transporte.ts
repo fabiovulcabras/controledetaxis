@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Entrada, Saida } from "../bot/tipos";
 import { payloadMeta } from "./meta";
 import { textoTemplate } from "./templates";
+import { enviarEmailsPlanejamento } from "../email";
 
 export type Canal = "whatsapp" | "simulado";
 
@@ -9,15 +10,31 @@ export type Canal = "whatsapp" | "simulado";
 export const modoEnvio = (): Canal =>
   process.env.WHATSAPP_MODO === "meta" && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID ? "whatsapp" : "simulado";
 
-/** Grava a mensagem recebida. Devolve false se ela já tinha sido recebida (a Meta reenvia em caso de demora). */
-export async function registrarEntrada(db: SupabaseClient, e: Entrada, canal: Canal, waId?: string, bruto?: unknown): Promise<boolean> {
-  const { error } = await db.from("mensagens").insert({
+/** Grava a mensagem recebida e devolve o id. Devolve null se ela já tinha sido recebida (a Meta reenvia em caso de demora). */
+export async function registrarEntrada(db: SupabaseClient, e: Entrada, canal: Canal, waId?: string, bruto?: unknown): Promise<string | null> {
+  const { data, error } = await db.from("mensagens").insert({
     direcao: "entrada", canal, telefone: e.telefone, wa_message_id: waId || null,
     conteudo: { texto: e.texto ?? null, botaoId: e.botaoId ?? null, localizacao: e.localizacao ?? null, ...(bruto ? { bruto } : {}) },
-  });
-  if (error?.code === "23505") return false;
+  }).select("id").single();
+  if (error?.code === "23505") return null;
   if (error) throw new Error(`Registrar mensagem recebida: ${error.message}`);
-  return true;
+  return data.id as string;
+}
+
+/** Liga a mensagem recebida à corrida tratada nela, para o histórico da corrida mostrar os dois lados da conversa. */
+export async function vincularEntrada(db: SupabaseClient, mensagemId: string | null, saidas: Saida[]): Promise<void> {
+  const corridaId = saidas.find((s) => s.corridaId)?.corridaId;
+  if (mensagemId && corridaId) await db.from("mensagens").update({ corrida_id: corridaId }).eq("id", mensagemId);
+}
+
+/**
+ * Destino final das mensagens geradas fora do Simulador: com a API oficial, saem pelo WhatsApp;
+ * em qualquer modo, os alertas do planejamento também vão por e-mail quando configurado.
+ */
+export async function despacharSaidas(db: SupabaseClient, saidas: Saida[]): Promise<void> {
+  if (!saidas.length) return;
+  if (modoEnvio() === "whatsapp") await enviarSaidas(db, saidas, "whatsapp");
+  await enviarEmailsPlanejamento(db, saidas);
 }
 
 /** A Meta só aceita texto livre até 24 h depois da última mensagem da pessoa. */

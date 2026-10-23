@@ -1,6 +1,7 @@
 import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "../lib/bot/tipos";
 import { transicaoValida, type OrigemEvento, type StatusCorrida } from "../lib/status";
 import { variantesTelefone } from "../lib/telefone";
+import { inicioDoMesSP } from "../lib/datas";
 
 /** Repositório em memória para testar o bot sem banco. Aplica as mesmas regras de transição do Postgres. */
 export class RepoMemoria implements Repo {
@@ -33,7 +34,7 @@ export class RepoMemoria implements Repo {
   async criarCorrida(n: NovaCorrida) {
     this.seq += 1;
     const c: Corrida = {
-      id: `c${this.seq}`, token_fornecedor: `tok${this.seq}`, protocolo: `TX-2026-${String(this.seq).padStart(5, "0")}`, fornecedor_id: null, status: "solicitada",
+      id: `c${this.seq}`, token_fornecedor: `tok${this.seq}`, fornecedores_tentados: [], protocolo: `TX-2026-${String(this.seq).padStart(5, "0")}`, fornecedor_id: null, status: "solicitada",
       criado_em: new Date().toISOString(), ...n, centro_custo_id: n.centro_custo_id ?? null,
     } as Corrida;
     this.corridas.push(c);
@@ -54,6 +55,11 @@ export class RepoMemoria implements Repo {
   }
   async corridasDoSolicitante(id: string, limite: number) { return this.corridas.filter((c) => c.solicitante_id === id).reverse().slice(0, limite); }
   async corridasComPrazoVencido(agora: Date) { return this.corridas.filter((c) => c.status === "enviada" && c.prazo_resposta_em && new Date(c.prazo_resposta_em) < agora); }
+  async gastoDoMes(id: string, agora: Date) {
+    const inicio = inicioDoMesSP(agora).getTime();
+    return this.corridas.filter((c) => c.solicitante_id === id && ["concluida", "validada", "contestada"].includes(c.status)
+      && new Date(c.data_hora_prevista).getTime() >= inicio).reduce((s, c) => s + Number(c.valor_informado ?? 0), 0);
+  }
   async corridasParaLembrete(agora: Date, ate: Date) {
     return this.corridas.filter((c) => c.tipo === "agendada" && ["enviada", "aceita"].includes(c.status) && !c.lembrete_enviado_em
       && new Date(c.data_hora_prevista) > agora && new Date(c.data_hora_prevista) <= ate);
@@ -69,9 +75,9 @@ export function repoExemplo() {
   );
   r.fornecedores.push(
     { id: "f1", nome: "Rádio Táxi Central", telefone_whatsapp: "5511900000101", prioridade: 1, prazo_resposta_min: 10, ativo: true },
-    { id: "f2", nome: "Coop Táxi Express", telefone_whatsapp: "5511900000102", prioridade: 2, prazo_resposta_min: 10, ativo: true },
+    { id: "f2", nome: "Coop Táxi Express", telefone_whatsapp: "5511900000102", prioridade: 2, prazo_resposta_min: 10, ativo: true, bandeirada: 6, valor_km: 3 },
   );
   r.solicitantes.push({ id: "s1", nome: "Ana Ribeiro", telefone_whatsapp: "5511900000001", unidade_id: "u1", centro_custo_padrao_id: "cc1", fornecedor_padrao_id: "f1", ativo: true });
-  r.parametros = { planejamento_telefones: "5511900000900", avisar_planejamento_toda_corrida: "sim", conversa_expira_min: "15", antecedencia_maxima_dias: "30", prazo_agendada_min: "120" };
+  r.parametros = { planejamento_telefones: "5511900000900", avisar_planejamento_toda_corrida: "sim", conversa_expira_min: "15", antecedencia_maxima_dias: "30", prazo_agendada_min: "120", reenvio_automatico: "nao" };
   return r;
 }

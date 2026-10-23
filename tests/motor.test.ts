@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista } from "../lib/bot/motor";
-import { despachar, enviarLembretes, verificarPrazos } from "../lib/bot/acoes";
+import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
@@ -400,5 +400,60 @@ describe("sugestões de endereço", () => {
     expect(s[0].endereco).toBe("Rua das Indústrias, 450 - Centro, Extrema - MG");
     expect(s[0].lat).toBe(-22.85);
     expect(s[1].endereco).toBe("Aeroporto Internacional de Guarulhos, Guarulhos - SP");
+  });
+});
+
+describe("reenvio automático e conferência de valor", () => {
+  it("recusa passa a corrida ao próximo fornecedor quando ligado", async () => {
+    const c = conversa();
+    c.repo.parametros.reenvio_automatico = "sim";
+    await pedirTaxiCompleto(c);
+    const s = await c.enviar({ telefone: RTC, botaoId: "RECUSAR:TX-2026-00001" });
+    const corrida = c.repo.corridas[0];
+    expect(corrida.status).toBe("enviada");
+    expect(corrida.fornecedor_id).toBe("f2");
+    expect(corrida.fornecedores_tentados).toEqual(["f1", "f2"]);
+    expect(ultima(s, "5511900000102").template?.nome).toBe("nova_corrida_fornecedor");
+    expect(ultima(s, ANA).texto).toContain("Enviamos a Coop Táxi Express");
+    expect(para(s, PLAN)).toHaveLength(0);
+  });
+  it("sem fornecedor sobrando, a recusa vai para o planejamento", async () => {
+    const c = conversa();
+    c.repo.parametros.reenvio_automatico = "sim";
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "RECUSAR:TX-2026-00001" });
+    const s = await c.enviar({ telefone: "5511900000102", botaoId: "RECUSAR:TX-2026-00001" });
+    expect(c.repo.corridas[0].status).toBe("recusada");
+    expect(ultima(s, PLAN).texto).toContain("recusada pelo fornecedor");
+    expect(await proximoFornecedor(c.repo, c.repo.corridas[0])).toBeNull();
+  });
+  it("prazo vencido com reenvio (API oficial) tenta o próximo fornecedor", async () => {
+    const c = conversa();
+    c.repo.parametros.reenvio_automatico = "sim";
+    await pedirTaxiCompleto(c);
+    const s = await verificarPrazos(c.repo, min(30), { reenviar: true });
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f2");
+    expect(ultima(s, ANA).texto).toContain("Enviamos a Coop Táxi Express");
+  });
+  it("valor esperado pela tarifa e alerta acima da tolerância", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    const corrida = c.repo.corridas[0];
+    Object.assign(corrida, { fornecedor_id: "f2", distancia_km: 10 });
+    expect(valorEsperado(corrida, c.repo.fornecedores[1])).toBe(36);
+    c.repo.parametros.tolerancia_trajeto_pct = "30";
+    expect(await verificarValor(c.repo, corrida, 45, min(20))).toHaveLength(0);
+    const s = await verificarValor(c.repo, corrida, 60, min(20));
+    expect(ultima(s, PLAN).texto).toContain("acima do esperado para 10.0 km");
+  });
+  it("limite mensal da pessoa gera alerta", async () => {
+    const c = conversa();
+    c.repo.solicitantes[0].limite_mensal = 50;
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 5 min" });
+    const s = await c.enviar({ telefone: RTC, texto: "80" });
+    expect(para(s, PLAN).some((x) => x.texto.includes("passou do limite mensal"))).toBe(true);
   });
 });

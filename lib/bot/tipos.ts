@@ -4,8 +4,12 @@ export type Solicitante = {
   id: string; nome: string; matricula?: string | null; setor?: string | null; telefone_whatsapp: string;
   unidade_id?: string | null; centro_custo_padrao_id?: string | null; fornecedor_padrao_id?: string | null; ativo: boolean;
   token_pedido?: string;
+  limite_mensal?: number | null;
 };
-export type Fornecedor = { id: string; nome: string; telefone_whatsapp: string; prioridade: number; prazo_resposta_min: number; ativo: boolean };
+export type Fornecedor = {
+  id: string; nome: string; telefone_whatsapp: string; prioridade: number; prazo_resposta_min: number; ativo: boolean;
+  bandeirada?: number | null; valor_km?: number | null; token_portal?: string;
+};
 export type Unidade = { id: string; nome: string; endereco_padrao?: string | null };
 export type CentroCusto = { id: string; codigo: string; descricao: string; unidade_id?: string | null; teto_por_corrida?: number | null; ativo: boolean };
 
@@ -18,15 +22,18 @@ export type Corrida = {
   valor_informado?: number | null; valor_faturado?: number | null; prazo_resposta_em?: string | null;
   lembrete_enviado_em?: string | null; motivo_recusa?: string | null; motivo_cancelamento?: string | null;
   token_fornecedor?: string;
+  fornecedores_tentados?: string[];
+  distancia_km?: number | null;
+  chave_envio?: string | null;
   criado_em: string;
 };
 
 export type NovaCorrida = Pick<Corrida, "solicitante_id" | "centro_custo_id" | "tipo" | "data_hora_prevista" | "origem" | "destino" | "qtd_passageiros" | "motivo">
-  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id">>;
+  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio">>;
 
 export type CamposCorrida = Partial<Pick<Corrida,
   "fornecedor_id" | "motorista" | "veiculo_placa" | "eta_minutos" | "valor_informado" | "prazo_resposta_em" |
-  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor">>;
+  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor" | "fornecedores_tentados">>;
 
 export type Conversa = { telefone: string; etapa: string; dados: Record<string, any>; atualizado_em: string };
 
@@ -79,4 +86,6 @@ export interface Repo {
   corridasDoSolicitante(solicitanteId: string, limite: number): Promise<Corrida[]>;
   corridasComPrazoVencido(agora: Date): Promise<Corrida[]>;
   corridasParaLembrete(agora: Date, ate: Date): Promise<Corrida[]>;
+  /** Soma do valor informado das corridas concluídas da pessoa no mês de "agora". */
+  gastoDoMes(solicitanteId: string, agora: Date): Promise<number>;
 }

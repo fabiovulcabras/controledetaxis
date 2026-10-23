@@ -32,8 +32,8 @@ export async function GET() {
     const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false } });
     const tabelas = ["profiles", "solicitantes", "fornecedores", "corridas", "mensagens", "conversas_bot", "parametros"];
     for (const t of tabelas) {
-      const { error, count } = await db.from(t).select("*", { count: "exact", head: true });
-      itens.push({ ok: !error, item: `Tabela ${t}`, detalhe: error ? `${error.message}${/does not exist|could not find/i.test(error.message) ? " — rode supabase/schema.sql" : ""}` : `${count ?? 0} registro(s)` });
+      const { error } = await db.from(t).select("*", { head: true });
+      itens.push({ ok: !error, item: `Tabela ${t}`, detalhe: error ? `${error.message}${/does not exist|could not find/i.test(error.message) ? " — rode supabase/schema.sql" : ""}` : undefined });
     }
     const { error: erroFn } = await db.rpc("fn_mudar_status", { p_corrida: "00000000-0000-0000-0000-000000000000", p_status: null, p_origem: "sistema", p_obs: null, p_campos: {} });
     const fnOk = !!erroFn && /não encontrada/i.test(erroFn.message);
@@ -41,9 +41,11 @@ export async function GET() {
 
     const { error: erroLinks } = await db.from("solicitantes").select("token_pedido", { head: true, count: "exact" });
     itens.push({ ok: !erroLinks, item: "Links de pedido (migração 002)", detalhe: erroLinks ? "Rode supabase/002_links_whatsapp.sql no SQL Editor." : undefined });
+    const { error: erro003 } = await db.rpc("fn_consumir_limite", { p_chave: "saude", p_limite: 1000, p_janela_seg: 60 });
+    itens.push({ ok: !erro003, item: "Melhorias (migração 003)", detalhe: erro003 ? "Rode supabase/003_melhorias.sql no SQL Editor." : undefined });
 
     const { data: fornecedores } = await db.from("fornecedores").select("id").eq("ativo", true);
-    itens.push({ ok: (fornecedores?.length ?? 0) > 0, item: "Pelo menos um fornecedor ativo", detalhe: `${fornecedores?.length ?? 0} ativo(s)` });
+    itens.push({ ok: (fornecedores?.length ?? 0) > 0, item: "Pelo menos um fornecedor ativo" });
     const { data: plan } = await db.from("parametros").select("valor").eq("chave", "planejamento_telefones").maybeSingle();
     itens.push({ ok: !!plan?.valor?.trim(), item: "Número do planejamento em Parâmetros", detalhe: plan?.valor?.trim() ? undefined : "Opcional, mas sem ele o planejamento não recebe avisos." });
   }

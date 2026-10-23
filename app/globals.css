@@ -615,3 +615,20 @@ th.num { text-align: right; }
 .sugestoes small { color: var(--slate-500); font-size: 13px; }
 .sugestoes .sugestoes-fonte { padding: 4px 12px; color: var(--slate-400); font-size: 11px; cursor: default; }
 .sugestoes .sugestoes-fonte:hover { background: none; }
+
+/* Prazo de resposta, confirmações e avisos */
+.prazo { display: inline-block; border-radius: 999px; background: var(--slate-100); color: var(--slate-600); padding: 2px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.prazo-perto { background: var(--amber-bg); color: var(--amber-900); }
+.prazo-atrasado { background: var(--red-bg); color: var(--red-700); }
+.prazo-compacto { margin-top: 3px; }
+.confirmacao { position: fixed; z-index: 61; top: 50%; left: 50%; width: min(440px, calc(100vw - 32px)); transform: translate(-50%, -50%); border-radius: 14px; background: #fff; padding: 20px 22px; box-shadow: 0 20px 48px rgba(13, 44, 84, .28); }
+.confirmacao h3 { margin: 0 0 8px; }
+.confirmacao p { margin: 0 0 16px; color: var(--slate-600); }
+.avisos { position: fixed; z-index: 70; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; width: min(380px, calc(100vw - 32px)); }
+.aviso { border-left: 4px solid var(--green-700); border-radius: 8px; background: #fff; color: var(--slate-700); padding: 12px 14px; box-shadow: 0 8px 24px rgba(13, 44, 84, .18); animation: painel-entra .18s ease; }
+.aviso.erro { border-left-color: var(--red-600); }
+.grupo-campo { display: flex; flex-direction: column; gap: 5px; }
+.atalhos { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.chips-endereco { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips-endereco button { min-height: 32px; max-width: 100%; overflow: hidden; border: 1px solid var(--slate-300); border-radius: 999px; background: #fff; color: var(--navy); padding: 4px 12px; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
+.chips-endereco button:hover { background: var(--slate-50); }
