@@ -30,7 +30,7 @@ export default function Cadastros() {
 
       {aba === "solicitantes" && <Crud key="sol" table="solicitantes" title="Pessoas autorizadas" nomeItem="solicitante" ordem="nome"
         subtitulo="Só estas pessoas pedem táxi. Cada uma tem um link pessoal de pedido: use “Link de pedido” para enviar pelo WhatsApp."
-        acoesExtras={(r, recarregar) => r.ativo && r.token_pedido ? <LinkPedido pessoa={r} recarregar={recarregar} /> : null}
+        acoesExtras={(r, recarregar) => r.ativo ? <LinkPedido pessoa={r} recarregar={recarregar} /> : null}
         fields={[
           { key: "nome", label: "Nome", required: true },
           { key: "telefone_whatsapp", label: "WhatsApp", required: true, mascara: "whatsapp", unico: true, placeholder: "(11) 98812-4471", ajuda: "O número que a pessoa usa no WhatsApp, com DDD." },
@@ -73,7 +73,7 @@ export default function Cadastros() {
 }
 
 /** Envia ao solicitante o link pessoal de pedido, copia ou troca o link (o antigo deixa de valer). */
-function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido: string }; recarregar: () => Promise<void> }) {
+function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido?: string | null }; recarregar: () => Promise<void> }) {
   const [aberto, setAberto] = useState(false);
   const [msg, setMsg] = useState("");
   const base = typeof window !== "undefined" ? window.location.origin : "";
@@ -94,6 +94,9 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
       {aberto && (
         <PainelLateral titulo="Link de pedido" subtitulo={pessoa.nome} onFechar={() => setAberto(false)} largura={520}>
           <div className="painel-corpo">
+            {!pessoa.token_pedido ? (
+              <p className="err">O banco ainda não tem os links de pedido. No Supabase, abra o SQL Editor, rode o arquivo <strong>supabase/002_links_whatsapp.sql</strong> do repositório e recarregue esta página.</p>
+            ) : (
             <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
               <legend>Link pessoal</legend>
               <p className="secao-ajuda">É por este link que {pessoa.nome.split(" ")[0]} pede táxi. Os pedidos saem no nome dela; quem tiver o link consegue pedir.</p>
@@ -106,6 +109,7 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
               </div>
               {msg && <p className="resumo-entrada">{msg}</p>}
             </fieldset>
+            )}
           </div>
         </PainelLateral>
       )}

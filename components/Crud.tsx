@@ -154,9 +154,9 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
                   <td><div className="repor-produto">{exibir(principal, r)}</div>{!semAtivo && !r.ativo && <Badge variant="danger">Inativo</Badge>}</td>
                   {secundarios.map((f) => <td key={f.key} className={f.type === "number" ? "num" : ""}>{exibir(f, r) ?? <span className="texto-fraco">—</span>}</td>)}
                   <td><div className="row" style={{ flexWrap: "nowrap" }}>
+                    {acoesExtras?.(r, load)}
                     <button type="button" className="ghost" onClick={() => editar(r)}>Editar</button>
                     {!semAtivo && <button type="button" className="ghost" onClick={() => toggle(r)}>{r.ativo ? "Desativar" : "Reativar"}</button>}
-                    {acoesExtras?.(r, load)}
                   </div></td>
                 </tr>
               ))}
