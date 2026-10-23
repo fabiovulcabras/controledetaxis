@@ -612,6 +612,8 @@ th.num { text-align: right; }
 .aviso.erro { border-left-color: var(--red-600); }
 .grupo-campo { display: flex; flex-direction: column; gap: 5px; }
 .atalhos { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.locais-cadastrados { width: 100%; margin-top: 6px; color: var(--navy); }
+.tag-local { display: inline-block; margin-left: 6px; border-radius: 999px; background: #FDF1D9; color: #8A4B06; padding: 1px 8px; font-size: 11px; font-weight: 700; vertical-align: middle; }
 .chips-endereco { display: flex; flex-wrap: wrap; gap: 6px; }
 .chips-endereco button { min-height: 32px; max-width: 100%; overflow: hidden; border: 1px solid var(--slate-300); border-radius: 999px; background: #fff; color: var(--navy); padding: 4px 12px; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
 .chips-endereco button:hover { background: var(--slate-50); }

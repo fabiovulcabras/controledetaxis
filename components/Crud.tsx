@@ -25,6 +25,7 @@ const mensagemErro = (error: { code?: string; message: string }) =>
   error.code === "23505" ? "Já existe um cadastro com estes dados."
     : error.code === "23514" ? "Algum campo está em formato inválido. Confira o telefone (DDD + número)."
     : error.code === "42501" || /row-level security|permission denied/i.test(error.message) ? "Você não tem permissão para alterar este cadastro."
+    : /does not exist|could not find the table|schema cache/i.test(error.message) ? `O banco ainda não tem esta tabela ou coluna. Rode as migrações pendentes de supabase/ no SQL Editor do Supabase (${error.message}).`
     : error.message;
 
 export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem, aviso, aoSalvar, semAtivo, acoesExtras }: {

@@ -4,10 +4,10 @@ import { useParams } from "next/navigation";
 import BrandMark from "@/components/BrandMark";
 import { Campo, GrupoCampo } from "@/components/Formulario";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
-import CampoEndereco from "@/components/CampoEndereco";
+import CampoEndereco, { type LocalCadastrado } from "@/components/CampoEndereco";
 
 type Dados = {
-  nome: string; endereco_unidade: string | null; centros: { id: string; rotulo: string }[]; centro_padrao: string | null;
+  nome: string; locais?: LocalCadastrado[]; centros: { id: string; rotulo: string }[]; centro_padrao: string | null;
   motivos: string[]; max_dias: number;
   frequentes?: { endereco: string; lat: number | null; lng: number | null }[];
   corridas: {
@@ -52,6 +52,7 @@ export default function Pedir() {
     setForm({ ...form, [k]: e.target.value, ...(k === "origem" ? { origem_lat: null, origem_lng: null } : {}) });
   const [localizando, setLocalizando] = useState(false);
   const [minhaPosicao, setMinhaPosicao] = useState<{ lat: number; lng: number } | null>(null);
+  const minhaUnidade = dados?.locais?.find((l) => l.minha) ?? null;
   const perto = minhaPosicao ?? (form.origem_lat != null && form.origem_lng != null ? { lat: form.origem_lat, lng: form.origem_lng } : null);
 
   const usarLocalizacao = () => {
@@ -145,20 +146,22 @@ export default function Pedir() {
             </GrupoCampo>
             {form.tipo === "agendada" && <Campo rotulo="Data e hora" obrigatorio><input type="datetime-local" min={minimo} value={form.data_hora} onChange={campo("data_hora")} /></Campo>}
             <GrupoCampo rotulo="Origem" obrigatorio htmlFor="campo-origem">
-              <CampoEndereco id="campo-origem" token={token} valor={form.origem} placeholder="Digite rua e número ou um local" perto={perto}
+              <CampoEndereco id="campo-origem" token={token} valor={form.origem} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
                 onMudar={(origem, lat, lng) => setForm((f) => ({ ...f, origem, origem_lat: lat, origem_lng: lng }))} />
+              <LocaisCadastrados locais={dados.locais} rotulo="Sair de um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, origem: l.texto, origem_lat: l.lat, origem_lng: l.lng }))} />
               <div className="atalhos">
-                {dados.endereco_unidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: dados.endereco_unidade!, origem_lat: null, origem_lng: null })}>Sair da unidade</button>}
+                {minhaUnidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: minhaUnidade.texto, origem_lat: minhaUnidade.lat, origem_lng: minhaUnidade.lng })}>Sair da {minhaUnidade.nome}</button>}
                 <button type="button" className="atalho" onClick={usarLocalizacao} disabled={localizando}>{localizando ? "Buscando endereço…" : "Usar minha localização"}</button>
               </div>
               {form.origem_lat != null && <span className="campo-ajuda">Confira o número; se precisar, corrija.</span>}
-              <Frequentes lista={dados.frequentes} atual={form.origem} onEscolher={(f) => setForm({ ...form, origem: f.endereco, origem_lat: f.lat, origem_lng: f.lng })} />
+              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.origem} onEscolher={(f) => setForm({ ...form, origem: f.endereco, origem_lat: f.lat, origem_lng: f.lng })} />
             </GrupoCampo>
             <GrupoCampo rotulo="Destino" obrigatorio htmlFor="campo-destino">
-              <CampoEndereco id="campo-destino" token={token} valor={form.destino} placeholder="Digite rua e número ou um local" perto={perto}
+              <CampoEndereco id="campo-destino" token={token} valor={form.destino} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
                 onMudar={(destino, lat, lng) => setForm((f) => ({ ...f, destino, destino_lat: lat, destino_lng: lng }))} />
-              {dados.endereco_unidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: dados.endereco_unidade!, destino_lat: null, destino_lng: null })}>Ir para a unidade</button></div>}
-              <Frequentes lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng })} />
+              <LocaisCadastrados locais={dados.locais} rotulo="Ir para um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, destino: l.texto, destino_lat: l.lat, destino_lng: l.lng }))} />
+              {minhaUnidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: minhaUnidade.texto, destino_lat: minhaUnidade.lat, destino_lng: minhaUnidade.lng })}>Ir para a {minhaUnidade.nome}</button></div>}
+              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng })} />
             </GrupoCampo>
             <Campo rotulo="Passageiros" obrigatorio>
               <select value={form.qtd_passageiros} onChange={campo("qtd_passageiros")}>
@@ -219,10 +222,26 @@ export default function Pedir() {
 }
 
 /** Atalhos com os endereços que a pessoa mais usa. */
-function Frequentes({ lista, atual, onEscolher }: {
+/** Lista suspensa com as unidades e os locais cadastrados pelo planejamento. */
+function LocaisCadastrados({ locais, rotulo, onEscolher }: { locais?: LocalCadastrado[]; rotulo: string; onEscolher: (l: LocalCadastrado) => void }) {
+  if (!locais?.length) return null;
+  const unidades = locais.filter((l) => l.tipo === "unidade"), outros = locais.filter((l) => l.tipo === "local");
+  const opcao = (l: LocalCadastrado) => <option key={l.texto} value={l.texto}>{l.nome}</option>;
+  return (
+    <select className="locais-cadastrados" value="" aria-label={rotulo}
+      onChange={(e) => { const l = locais.find((x) => x.texto === e.target.value); if (l) onEscolher(l); }}>
+      <option value="">{rotulo}…</option>
+      {unidades.length > 0 && (outros.length ? <optgroup label="Unidades">{unidades.map(opcao)}</optgroup> : unidades.map(opcao))}
+      {outros.length > 0 && (unidades.length ? <optgroup label="Outros locais">{outros.map(opcao)}</optgroup> : outros.map(opcao))}
+    </select>
+  );
+}
+
+function Frequentes({ lista, atual, onEscolher, locais }: {
+  locais?: LocalCadastrado[];
   lista?: { endereco: string; lat: number | null; lng: number | null }[]; atual: string; onEscolher: (f: { endereco: string; lat: number | null; lng: number | null }) => void;
 }) {
-  const opcoes = (lista ?? []).filter((f) => f.endereco !== atual).slice(0, 4);
+  const opcoes = (lista ?? []).filter((f) => f.endereco !== atual && !(locais ?? []).some((l) => l.texto === f.endereco)).slice(0, 4);
   if (!opcoes.length) return null;
   return (
     <div className="chips-endereco" aria-label="Endereços usados recentemente">

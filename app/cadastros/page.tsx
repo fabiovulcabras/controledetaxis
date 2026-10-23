@@ -9,10 +9,10 @@ import { formatarTelefone } from "@/lib/telefone";
 import { linkWhatsApp, msgLinkPedido } from "@/lib/whatsapp/link";
 import { useRetorno } from "@/components/Retorno";
 
-type Aba = "solicitantes" | "fornecedores" | "centros" | "unidades" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "centros" | "unidades" | "locais" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
   ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["centros", "Centros de custo"],
-  ["unidades", "Unidades"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
+  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
 export default function Cadastros() {
@@ -66,9 +66,17 @@ export default function Cadastros() {
         ]} />}
 
       {aba === "unidades" && <Crud key="uni" table="unidades" title="Unidades" nomeItem="unidade" ordem="nome"
+        subtitulo="Unidades da empresa. As que têm endereço aparecem para todos no app de pedido, em “local cadastrado”."
         fields={[
-          { key: "nome", label: "Nome", required: true, unico: true },
-          { key: "endereco_padrao", label: "Endereço", largo: true, ajuda: "O bot oferece este endereço como atalho de origem e destino." },
+          { key: "nome", label: "Nome", required: true, unico: true, placeholder: "CD Extrema" },
+          { key: "endereco_padrao", label: "Endereço", largo: true, placeholder: "Rua, número, bairro, cidade - UF", ajuda: "Com número e cidade, para o mapa achar o lugar certo. Aparece no app de pedido como origem e destino." },
+        ]} />}
+
+      {aba === "locais" && <Crud key="loc" table="locais" title="Locais frequentes" nomeItem="local" ordem="nome"
+        subtitulo="Lugares que não são unidades da empresa, mas para onde se vai com frequência: hospital, aeroporto, rodoviária, cliente. Aparecem no app de pedido junto com as unidades."
+        fields={[
+          { key: "nome", label: "Nome", required: true, unico: true, placeholder: "Pronto Socorro Municipal" },
+          { key: "endereco", label: "Endereço", required: true, largo: true, placeholder: "Rua, número, bairro, cidade - UF", ajuda: "Com número e cidade, para o mapa achar o lugar certo." },
         ]} />}
 
       {aba === "parametros" && <Parametros />}

@@ -7,6 +7,7 @@ import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { CANCELAVEIS, STATUS } from "@/lib/status";
 import { formatarDataHora } from "@/lib/datas";
 import { distanciaTrajeto } from "@/lib/distancia";
+import { locaisDoPedido } from "@/lib/locais";
 import type { Corrida } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,8 @@ export async function GET(req: Request) {
     const repo = repoServidor();
     const db = supabaseAdmin();
     const base = urlApp(req);
-    const [unidade, centros, maxDias, recentes] = await Promise.all([
-      sol.unidade_id ? repo.unidade(sol.unidade_id) : null,
+    const [locais, centros, maxDias, recentes] = await Promise.all([
+      locaisDoPedido(db, sol.unidade_id),
       repo.centrosCusto(sol.unidade_id),
       numero(repo, "antecedencia_maxima_dias", 30),
       db.from("corridas").select("*, fornecedores(nome,telefone_whatsapp)").eq("solicitante_id", sol.id).order("criado_em", { ascending: false }).limit(20),
@@ -47,7 +48,7 @@ export async function GET(req: Request) {
     const lista = recentes.data ?? [];
     return Response.json({
       nome: sol.nome,
-      endereco_unidade: unidade?.endereco_padrao ? `${unidade.nome} · ${unidade.endereco_padrao}` : null,
+      locais,
       centros: centros.map((c) => ({ id: c.id, rotulo: `${c.codigo} · ${c.descricao}` })),
       centro_padrao: sol.centro_custo_padrao_id ?? null,
       motivos: MOTIVOS,
