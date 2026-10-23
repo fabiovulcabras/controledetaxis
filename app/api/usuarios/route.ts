@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { erroJson, usuarioDaRequisicao } from "@/lib/auth-api";
+import { erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +14,14 @@ export async function POST(req: Request) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return erroJson("Informe um e-mail válido.");
   if (!nome) return erroJson("Informe o nome.");
 
+  try {
   const db = supabaseAdmin();
   const origem = (process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin).replace(/\/$/, "");
   const { data, error } = await db.auth.admin.inviteUserByEmail(email, { data: { nome }, redirectTo: `${origem}/redefinir-senha` });
   if (error || !data.user) return erroJson(error?.message?.includes("already") ? "Este e-mail já tem acesso." : error?.message ?? "Não foi possível convidar.");
   await db.from("profiles").update({ nome, perfil }).eq("id", data.user.id);
   return Response.json({ ok: true });
+  } catch (err) {
+    return erroJson(mensagemDeErro(err), 500);
+  }
 }

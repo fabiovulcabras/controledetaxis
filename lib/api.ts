@@ -8,7 +8,11 @@ export async function chamarApi<T = any>(caminho: string, corpo?: unknown, metod
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session?.access_token ?? ""}` },
     body: corpo === undefined ? undefined : JSON.stringify(corpo),
   });
-  const json = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(json?.erro ?? `Erro ${resp.status}`);
+  const texto = await resp.text();
+  let json: any = {};
+  try { json = texto ? JSON.parse(texto) : {}; } catch { /* resposta não é JSON (erro do servidor ou da hospedagem) */ }
+  if (!resp.ok) {
+    throw new Error(json?.erro ?? `Erro ${resp.status} no servidor. Veja /api/saude para conferir a configuração e os logs da hospedagem para o detalhe.`);
+  }
   return json as T;
 }

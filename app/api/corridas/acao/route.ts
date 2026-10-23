@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { avisarSolicitante, cancelarCorrida, despachar } from "@/lib/bot/acoes";
 import { enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
-import { clienteDoUsuario, erroJson, usuarioDaRequisicao } from "@/lib/auth-api";
+import { clienteDoUsuario, erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 import { brl } from "@/lib/datas";
 import type { Saida } from "@/lib/bot/tipos";
 
@@ -20,12 +20,11 @@ export async function POST(req: Request) {
   const corpo = await req.json().catch(() => null);
   const acao = corpo?.acao as Acao;
   const obs = typeof corpo?.obs === "string" ? corpo.obs.trim() : "";
-  const repo = new RepoSupabase(await clienteDoUsuario(req));
-
-  const c = corpo?.corridaId ? await repo.corrida(String(corpo.corridaId)) : null;
-  if (!c) return erroJson("Corrida não encontrada.", 404);
-
   try {
+    const repo = new RepoSupabase(await clienteDoUsuario(req));
+    const c = corpo?.corridaId ? await repo.corrida(String(corpo.corridaId)) : null;
+    if (!c) return erroJson("Corrida não encontrada.", 404);
+
     let saidas: Saida[] = [];
     switch (acao) {
       case "validar":
@@ -62,7 +61,6 @@ export async function POST(req: Request) {
     if (saidas.length) await enviarSaidas(supabaseAdmin(), saidas, modoEnvio());
     return Response.json({ ok: true, mensagens: saidas.length });
   } catch (err) {
-    const msg = err instanceof Error ? err.message.replace(/^Atualizar corrida: /, "") : "Não foi possível concluir a ação.";
-    return erroJson(msg);
+    return erroJson(mensagemDeErro(err).replace(/^Atualizar corrida: /, ""));
   }
 }

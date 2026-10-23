@@ -3,7 +3,7 @@ import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { processarEntrada } from "@/lib/bot/motor";
 import { enviarSaidas, registrarEntrada } from "@/lib/whatsapp/transporte";
 import { normalizarTelefone } from "@/lib/telefone";
-import { erroJson, usuarioDaRequisicao } from "@/lib/auth-api";
+import { erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 import type { Entrada } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +18,15 @@ export async function POST(req: Request) {
   const entrada: Entrada = { telefone, texto: corpo?.texto ?? undefined, botaoId: corpo?.botaoId ?? undefined, localizacao: corpo?.localizacao ?? undefined };
   if (!entrada.texto && !entrada.botaoId && !entrada.localizacao) return erroJson("Mensagem vazia.");
 
-  const db = supabaseAdmin();
   try {
+    const db = supabaseAdmin();
     await registrarEntrada(db, entrada, "simulado");
     const saidas = await processarEntrada(entrada, new RepoSupabase(db), new Date());
     await enviarSaidas(db, saidas, "simulado");
     return Response.json({ ok: true, respostas: saidas.length });
   } catch (err) {
-    return erroJson(err instanceof Error ? err.message : "Erro ao processar a mensagem.", 500);
+    console.error("Erro no simulador", err);
+    return erroJson(mensagemDeErro(err), 500);
   }
 }
 
@@ -35,8 +36,12 @@ export async function DELETE(req: Request) {
   if (usuario instanceof Response) return usuario;
   const corpo = await req.json().catch(() => ({}));
   const telefones: string[] = (corpo?.telefones ?? []).map((t: string) => normalizarTelefone(t)).filter(Boolean);
-  const db = supabaseAdmin();
-  await db.from("mensagens").delete().eq("canal", "simulado");
-  if (telefones.length) await db.from("conversas_bot").delete().in("telefone", telefones);
-  return Response.json({ ok: true });
+  try {
+    const db = supabaseAdmin();
+    await db.from("mensagens").delete().eq("canal", "simulado");
+    if (telefones.length) await db.from("conversas_bot").delete().in("telefone", telefones);
+    return Response.json({ ok: true });
+  } catch (err) {
+    return erroJson(mensagemDeErro(err), 500);
+  }
 }
