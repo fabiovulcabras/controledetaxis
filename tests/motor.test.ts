@@ -6,6 +6,7 @@ import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
 import { lerFaturaCsv } from "../lib/csv";
+import { enderecoDoNominatim } from "../lib/endereco";
 import type { Entrada, Saida } from "../lib/bot/tipos";
 
 const ANA = "5511900000001";
@@ -364,5 +365,24 @@ describe("links do WhatsApp (wa.me)", () => {
     expect(depois!.length).toBe(64);
     await despachar(c.repo, c.repo.corridas[0], outro, min(61), "planejamento");
     expect(c.repo.corridas[0].token_fornecedor).toBe(depois);
+  });
+});
+
+describe("endereço pela localização", () => {
+  it("monta rua, número, bairro, cidade e UF", () => {
+    const r = { display_name: "x", address: { road: "Rua das Indústrias", house_number: "450", suburb: "Centro", town: "Extrema", "ISO3166-2-lvl4": "BR-MG" } };
+    expect(enderecoDoNominatim(r)).toBe("Rua das Indústrias, 450 - Centro, Extrema - MG");
+  });
+  it("sem número nem bairro, usa o que houver", () => {
+    expect(enderecoDoNominatim({ address: { road: "Rodovia Fernão Dias", city: "Extrema", "ISO3166-2-lvl4": "BR-MG" } })).toBe("Rodovia Fernão Dias, Extrema - MG");
+  });
+  it("sem campos estruturados, usa o nome completo", () => {
+    expect(enderecoDoNominatim({ display_name: "Algum lugar, Brasil", address: {} })).toBe("Algum lugar, Brasil");
+  });
+  it("mensagem ao fornecedor inclui o mapa quando há coordenadas", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    const corrida = { ...c.repo.corridas[0], origem_lat: -22.83396, origem_lng: -46.328 };
+    expect(msgNovaCorridaFornecedor(corrida, "Ana", "https://app")).toContain("Mapa: https://maps.google.com/?q=-22.83396,-46.328");
   });
 });

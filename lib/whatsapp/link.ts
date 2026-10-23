@@ -27,6 +27,7 @@ export function msgNovaCorridaFornecedor(c: Corrida, solicitante: string, base: 
     `Solicitante: ${solicitante}`,
     `Quando: ${quando(c)}`,
     `Origem: ${c.origem}`,
+    ...(c.origem_lat != null && c.origem_lng != null ? [`Mapa: https://maps.google.com/?q=${c.origem_lat},${c.origem_lng}`] : []),
     `Destino: ${c.destino}`,
     `Passageiros: ${c.qtd_passageiros}${c.outros_passageiros ? ` (${c.outros_passageiros})` : ""}`,
     "",

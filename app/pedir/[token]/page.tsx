@@ -14,7 +14,7 @@ type Dados = {
 };
 type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
 
-const vazio = { tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", centro_custo_id: "", motivo: "", motivo_outro: "" };
+const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", centro_custo_id: "", motivo: "", motivo_outro: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
 
 /** Página pessoal de pedido de táxi, aberta pelo link que a pessoa autorizada recebe no WhatsApp. */
@@ -43,14 +43,26 @@ export default function Pedir() {
     return () => clearInterval(t);
   }, [token]);
 
-  const campo = (k: keyof typeof vazio) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm({ ...form, [k]: e.target.value });
+  const campo = (k: keyof typeof vazio) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    // Origem digitada à mão deixa de valer como ponto do mapa
+    setForm({ ...form, [k]: e.target.value, ...(k === "origem" ? { origem_lat: null, origem_lng: null } : {}) });
+  const [localizando, setLocalizando] = useState(false);
 
   const usarLocalizacao = () => {
+    setErr("");
     if (!navigator.geolocation) { setErr("Este celular não permite pegar a localização. Digite o endereço."); return; }
+    setLocalizando(true);
     navigator.geolocation.getCurrentPosition(
-      (p) => setForm((f) => ({ ...f, origem: `Minha localização (${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)})` })),
-      () => setErr("Não foi possível pegar a localização. Digite o endereço."),
-      { enableHighAccuracy: true, timeout: 10_000 },
+      async (p) => {
+        const lat = p.coords.latitude, lng = p.coords.longitude;
+        const r = await fetch(`/api/endereco?lat=${lat}&lng=${lng}`).catch(() => null);
+        const j = r ? await r.json().catch(() => ({})) : {};
+        setLocalizando(false);
+        if (!r?.ok || !j.endereco) { setErr(j.erro ?? "Não foi possível descobrir o endereço. Digite a origem."); return; }
+        setForm((f) => ({ ...f, origem: j.endereco, origem_lat: lat, origem_lng: lng }));
+      },
+      () => { setLocalizando(false); setErr("Não foi possível pegar a localização. Permita o acesso à localização ou digite o endereço."); },
+      { enableHighAccuracy: true, timeout: 15_000 },
     );
   };
 
@@ -63,7 +75,7 @@ export default function Pedir() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
-        origem: form.origem, destino: form.destino, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
+        origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
         centro_custo_id: form.centro_custo_id, motivo,
       }),
     });
@@ -126,9 +138,10 @@ export default function Pedir() {
             {form.tipo === "agendada" && <Campo rotulo="Data e hora" obrigatorio><input type="datetime-local" min={minimo} value={form.data_hora} onChange={campo("data_hora")} /></Campo>}
             <Campo rotulo="Origem" obrigatorio ajuda={<span className="row">
               {dados.endereco_unidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: dados.endereco_unidade! })}>Sair da unidade</button>}
-              <button type="button" className="atalho" onClick={usarLocalizacao}>Usar minha localização</button>
+              <button type="button" className="atalho" onClick={usarLocalizacao} disabled={localizando}>{localizando ? "Buscando endereço…" : "Usar minha localização"}</button>
             </span>}>
               <input value={form.origem} onChange={campo("origem")} placeholder="Rua, número, bairro" autoComplete="street-address" />
+              {form.origem_lat != null && <span className="campo-ajuda">Endereço aproximado pela localização do celular. Confira o número e corrija se precisar.</span>}
             </Campo>
             <Campo rotulo="Destino" obrigatorio ajuda={dados.endereco_unidade ? <button type="button" className="atalho" onClick={() => setForm({ ...form, destino: dados.endereco_unidade! })}>Ir para a unidade</button> : undefined}>
               <input value={form.destino} onChange={campo("destino")} placeholder="Rua, número, bairro ou local" />
