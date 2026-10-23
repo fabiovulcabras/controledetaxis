@@ -33,7 +33,7 @@ export class RepoMemoria implements Repo {
   async criarCorrida(n: NovaCorrida) {
     this.seq += 1;
     const c: Corrida = {
-      id: `c${this.seq}`, protocolo: `TX-2026-${String(this.seq).padStart(5, "0")}`, fornecedor_id: null, status: "solicitada",
+      id: `c${this.seq}`, token_fornecedor: `tok${this.seq}`, protocolo: `TX-2026-${String(this.seq).padStart(5, "0")}`, fornecedor_id: null, status: "solicitada",
       criado_em: new Date().toISOString(), ...n, centro_custo_id: n.centro_custo_id ?? null,
     } as Corrida;
     this.corridas.push(c);

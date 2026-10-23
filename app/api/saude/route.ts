@@ -39,6 +39,9 @@ export async function GET() {
     const fnOk = !!erroFn && /não encontrada/i.test(erroFn.message);
     itens.push({ ok: fnOk, item: "Função fn_mudar_status", detalhe: fnOk ? undefined : erroFn?.message ?? "Resposta inesperada" });
 
+    const { error: erroLinks } = await db.from("solicitantes").select("token_pedido", { head: true, count: "exact" });
+    itens.push({ ok: !erroLinks, item: "Links de pedido (migração 002)", detalhe: erroLinks ? "Rode supabase/002_links_whatsapp.sql no SQL Editor." : undefined });
+
     const { data: fornecedores } = await db.from("fornecedores").select("id").eq("ativo", true);
     itens.push({ ok: (fornecedores?.length ?? 0) > 0, item: "Pelo menos um fornecedor ativo", detalhe: `${fornecedores?.length ?? 0} ativo(s)` });
     const { data: plan } = await db.from("parametros").select("valor").eq("chave", "planejamento_telefones").maybeSingle();

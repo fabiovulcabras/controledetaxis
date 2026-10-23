@@ -8,6 +8,7 @@ import { useApp } from "@/components/AuthGate";
 import { CANCELAVEIS, EXCECOES, STATUS, type StatusCorrida } from "@/lib/status";
 import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
 import { formatarTelefone } from "@/lib/telefone";
+import { linkWhatsApp, msgNovaCorridaFornecedor } from "@/lib/whatsapp/link";
 
 type Corrida = {
   id: string; protocolo: string; status: StatusCorrida; tipo: string; data_hora_prevista: string; criado_em: string;
@@ -17,7 +18,8 @@ type Corrida = {
   motivo_recusa: string | null; motivo_cancelamento: string | null;
   solicitante_id: string; fornecedor_id: string | null; centro_custo_id: string | null;
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
-  fornecedores?: { nome: string } | null;
+  fornecedores?: { nome: string; telefone_whatsapp?: string } | null;
+  token_fornecedor?: string;
   centros_custo?: { codigo: string; descricao: string } | null;
 };
 type Grupo = "todas" | "abertas" | "excecoes" | "validar" | "validadas" | "canceladas";
@@ -144,10 +146,11 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
   const [ocupado, setOcupado] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
+  const [links, setLinks] = useState<{ rotulo: string; url: string }[]>([]);
 
   const carregar = async () => {
     const [r, ev, ms] = await Promise.all([
-      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome), centros_custo(codigo,descricao)").eq("id", id).maybeSingle(),
+      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome,telefone_whatsapp), centros_custo(codigo,descricao)").eq("id", id).maybeSingle(),
       supabase.from("corrida_eventos").select("*, profiles(nome)").eq("corrida_id", id).order("criado_em", { ascending: false }),
       supabase.from("mensagens").select("*").eq("corrida_id", id).order("criado_em"),
     ]);
@@ -156,13 +159,14 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
     setEventos((ev.data ?? []) as Evento[]);
     setMensagens((ms.data ?? []) as Mensagem[]);
   };
-  useEffect(() => { setAcao(null); setErr(""); setOk(""); void carregar(); }, [id]);
+  useEffect(() => { setAcao(null); setErr(""); setOk(""); setLinks([]); void carregar(); }, [id]);
 
   const executar = async (nome: string, extra: Record<string, unknown> = {}) => {
     setOcupado(true); setErr(""); setOk("");
     try {
       const r = await chamarApi("/api/corridas/acao", { corridaId: id, acao: nome, obs, ...extra });
-      setOk(r.mensagens ? `Feito. ${r.mensagens} mensagem(ns) enviada(s).` : "Feito.");
+      setLinks(r.links ?? []);
+      setOk(r.mensagens ? `Feito. ${r.mensagens} mensagem(ns) enviada(s).` : r.links?.length ? "Feito. Avise pelo WhatsApp com os botões abaixo." : "Feito.");
       setAcao(null); setObs(""); setValor("");
       await carregar(); onMudou();
     } catch (e) {
@@ -188,7 +192,23 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
     <PainelLateral titulo={c.protocolo} subtitulo={<><StatusTag status={c.status} /> {STATUS[c.status].ajuda}</>} onFechar={onFechar} ocupado={ocupado} largura={700}>
       <div className="painel-corpo">
         {ok && <div className="ok">{ok}</div>}
+        {links.map((l) => <a key={l.url} className="botao-whatsapp" href={l.url} target="_blank" rel="noopener noreferrer">{l.rotulo}</a>)}
         {err && <div className="err">{err}</div>}
+
+        {podeAgir && (
+          <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+            <legend>WhatsApp</legend>
+            <div className="acoes-corrida">
+              {c.fornecedores?.telefone_whatsapp && c.token_fornecedor && ["solicitada", "enviada", "sem_resposta"].includes(c.status) && (
+                <a className="ghost" target="_blank" rel="noopener noreferrer"
+                  href={linkWhatsApp(c.fornecedores.telefone_whatsapp, msgNovaCorridaFornecedor(c as any, c.solicitantes?.nome ?? "-", window.location.origin))}>Enviar corrida ao fornecedor</a>
+              )}
+              {c.fornecedores?.telefone_whatsapp && <a className="ghost" target="_blank" rel="noopener noreferrer" href={linkWhatsApp(c.fornecedores.telefone_whatsapp, `Sobre a corrida ${c.protocolo}: `)}>Falar com {c.fornecedores.nome}</a>}
+              {c.solicitantes?.telefone_whatsapp && <a className="ghost" target="_blank" rel="noopener noreferrer" href={linkWhatsApp(c.solicitantes.telefone_whatsapp, `Sobre a sua corrida ${c.protocolo}: `)}>Falar com {c.solicitantes.nome.split(" ")[0]}</a>}
+              {c.token_fornecedor && <a className="ghost" target="_blank" rel="noopener noreferrer" href={`/f/${c.token_fornecedor}`}>Página do fornecedor</a>}
+            </div>
+          </fieldset>
+        )}
 
         {podeAgir && Object.values(pode).some(Boolean) && (
           <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>

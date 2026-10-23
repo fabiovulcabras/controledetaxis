@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista } from "../lib/bot/motor";
-import { enviarLembretes, verificarPrazos } from "../lib/bot/acoes";
+import { despachar, enviarLembretes, verificarPrazos } from "../lib/bot/acoes";
+import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
@@ -326,5 +327,42 @@ describe("fatura em CSV", () => {
   it("lê sem cabeçalho na ordem data, protocolo, descrição, valor", () => {
     const { itens } = lerFaturaCsv("2026-10-22,TX-2026-00020,Rodoviária,54.00");
     expect(itens[0]).toEqual({ data_corrida: "2026-10-22", protocolo_informado: "TX-2026-00020", descricao: "Rodoviária", valor: 54 });
+  });
+});
+
+describe("links do WhatsApp (wa.me)", () => {
+  it("monta o link com o número normalizado e o texto codificado", () => {
+    expect(linkWhatsApp("(11) 98812-4471", "Olá & tchau")).toBe("https://wa.me/5511988124471?text=Ol%C3%A1%20%26%20tchau");
+  });
+  it("mensagem ao fornecedor traz protocolo e o link de resposta", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    const corrida = c.repo.corridas[0];
+    const msg = msgNovaCorridaFornecedor(corrida, "Ana Ribeiro", "https://app.exemplo");
+    expect(msg).toContain("TX-2026-00001");
+    expect(msg).toContain("https://app.exemplo/f/tok1");
+    expect(msg).toContain("Origem: Unidade Centro");
+  });
+  it("aviso de aceite ao solicitante traz motorista e link de acompanhamento", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    const msg = msgAceitaSolicitante(c.repo.corridas[0], "Rádio Táxi Central", "https://app.exemplo", "abc");
+    expect(msg).toContain("Motorista: Carlos Souza, placa RTX4F21, chega em cerca de 12 min.");
+    expect(msg).toContain("https://app.exemplo/pedir/abc");
+  });
+  it("reenviar a outro fornecedor troca o link; reenviar ao mesmo mantém", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "RECUSAR:TX-2026-00001" });
+    const antes = c.repo.corridas[0].token_fornecedor;
+    const outro = c.repo.fornecedores[1];
+    await despachar(c.repo, c.repo.corridas[0], outro, min(60), "planejamento");
+    const depois = c.repo.corridas[0].token_fornecedor;
+    expect(depois === antes).toBe(false);
+    expect(depois!.length).toBe(64);
+    await despachar(c.repo, c.repo.corridas[0], outro, min(61), "planejamento");
+    expect(c.repo.corridas[0].token_fornecedor).toBe(depois);
   });
 });

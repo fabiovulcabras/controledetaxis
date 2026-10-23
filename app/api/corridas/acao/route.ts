@@ -4,6 +4,7 @@ import { avisarSolicitante, cancelarCorrida, despachar } from "@/lib/bot/acoes";
 import { enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
 import { clienteDoUsuario, erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
 import { brl } from "@/lib/datas";
+import { linkWhatsApp, msgCancelamentoFornecedor, msgNovaCorridaFornecedor, urlApp, type LinkWhatsApp } from "@/lib/whatsapp/link";
 import type { Saida } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export async function POST(req: Request) {
     if (!c) return erroJson("Corrida não encontrada.", 404);
 
     let saidas: Saida[] = [];
+    const links: LinkWhatsApp[] = [];
+    const sol = await repo.solicitante(c.solicitante_id);
     switch (acao) {
       case "validar":
         await repo.mudarStatus(c.id, "validada", "planejamento", obs || "Validada pelo planejamento");
@@ -38,12 +41,16 @@ export async function POST(req: Request) {
       case "cancelar": {
         if (!obs) return erroJson("Informe o motivo do cancelamento.");
         saidas = (await cancelarCorrida(repo, c, obs, "planejamento", { avisarSolicitante: true })).saidas;
+        const forn = c.fornecedor_id && ["enviada", "aceita", "em_andamento", "sem_resposta"].includes(c.status) ? await repo.fornecedor(c.fornecedor_id) : null;
+        if (forn) links.push({ rotulo: `Avisar ${forn.nome} pelo WhatsApp`, url: linkWhatsApp(forn.telefone_whatsapp, msgCancelamentoFornecedor(c, obs)) });
+        if (sol) links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, `Sua corrida ${c.protocolo} foi cancelada pelo planejamento. Motivo: ${obs}.`) });
         break;
       }
       case "reenviar": {
         const forn = corpo?.fornecedorId ? await repo.fornecedor(String(corpo.fornecedorId)) : null;
         if (!forn?.ativo) return erroJson("Escolha um fornecedor ativo.");
         const r = await despachar(repo, c, forn, new Date(), "planejamento", obs || `Reenviada a ${forn.nome} pelo planejamento`);
+        links.push({ rotulo: `Enviar a ${forn.nome} pelo WhatsApp`, url: linkWhatsApp(forn.telefone_whatsapp, msgNovaCorridaFornecedor(r.corrida, sol?.nome ?? "-", urlApp(req))) });
         saidas = [...r.saidas, ...await avisarSolicitante(repo, r.corrida,
           `Sua corrida ${c.protocolo} foi enviada ao fornecedor ${forn.nome}. Avisaremos quando ele responder.`, `enviada ao fornecedor ${forn.nome}`)];
         break;
@@ -58,8 +65,10 @@ export async function POST(req: Request) {
       default:
         return erroJson("Ação desconhecida.");
     }
-    if (saidas.length) await enviarSaidas(supabaseAdmin(), saidas, modoEnvio());
-    return Response.json({ ok: true, mensagens: saidas.length });
+    // Sem a API oficial, nada sai sozinho: o painel mostra os botões de WhatsApp para enviar à mão
+    const oficial = modoEnvio() === "whatsapp";
+    if (saidas.length && oficial) await enviarSaidas(supabaseAdmin(), saidas, "whatsapp");
+    return Response.json({ ok: true, mensagens: oficial ? saidas.length : 0, links: oficial ? [] : links });
   } catch (err) {
     return erroJson(mensagemDeErro(err).replace(/^Atualizar corrida: /, ""));
   }

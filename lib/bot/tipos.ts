@@ -3,6 +3,7 @@ import type { OrigemEvento, StatusCorrida } from "../status";
 export type Solicitante = {
   id: string; nome: string; matricula?: string | null; setor?: string | null; telefone_whatsapp: string;
   unidade_id?: string | null; centro_custo_padrao_id?: string | null; fornecedor_padrao_id?: string | null; ativo: boolean;
+  token_pedido?: string;
 };
 export type Fornecedor = { id: string; nome: string; telefone_whatsapp: string; prioridade: number; prazo_resposta_min: number; ativo: boolean };
 export type Unidade = { id: string; nome: string; endereco_padrao?: string | null };
@@ -16,6 +17,7 @@ export type Corrida = {
   motorista?: string | null; veiculo_placa?: string | null; eta_minutos?: number | null;
   valor_informado?: number | null; valor_faturado?: number | null; prazo_resposta_em?: string | null;
   lembrete_enviado_em?: string | null; motivo_recusa?: string | null; motivo_cancelamento?: string | null;
+  token_fornecedor?: string;
   criado_em: string;
 };
 
@@ -24,7 +26,7 @@ export type NovaCorrida = Pick<Corrida, "solicitante_id" | "centro_custo_id" | "
 
 export type CamposCorrida = Partial<Pick<Corrida,
   "fornecedor_id" | "motorista" | "veiculo_placa" | "eta_minutos" | "valor_informado" | "prazo_resposta_em" |
-  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em">>;
+  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor">>;
 
 export type Conversa = { telefone: string; etapa: string; dados: Record<string, any>; atualizado_em: string };
 

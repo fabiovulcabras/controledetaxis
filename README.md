@@ -22,12 +22,14 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 | Visão geral | todos | Números do dia, exceções para tratar, valor por fornecedor e por centro de custo no mês |
 | Corridas | todos | Lista com filtros; detalhe com dados, linha do tempo, mensagens e ações (validar, contestar, cancelar, reenviar, ajustar valor) |
 | Conciliação | planejamento | Importa a fatura, cruza com os protocolos, aceita/contesta itens, aponta corridas não faturadas, exporta a contestação |
+| Pedido por link (`/pedir/…`) | pessoa autorizada, sem login | Pedido de táxi pelo celular, acompanhamento e cancelamento |
+| Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor |
 | Simulador do bot | planejamento | Três celulares (pessoa autorizada, fornecedor, planejamento) conversando com o mesmo motor do WhatsApp real |
 | Cadastros | admin | Pessoas autorizadas, fornecedores, centros de custo, unidades, parâmetros e usuários do painel |
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez).
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`), cada uma numa execução separada.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios para usar no Simulador.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -41,6 +43,20 @@ Sem a Meta configurada (`WHATSAPP_MODO=simulado`), tudo funciona pelo Simulador:
 O app é Next.js comum. Opções:
 - **Vercel**: o plano Hobby é só para uso pessoal e não comercial; para uso da empresa, use o Pro.
 - **Cloudflare Workers/Pages** ou outro host Node: configure as mesmas variáveis de ambiente.
+
+## Pedido por link do WhatsApp (gratuito, sem API)
+
+Funciona sem conta na Meta: o app monta a mensagem e o próprio WhatsApp de quem toca no botão envia (links `wa.me`).
+
+1. Em **Cadastros › Pessoas autorizadas › Link de pedido**, envie a cada pessoa o link pessoal dela (`/pedir/<token>`). Ela salva na tela inicial do celular.
+2. A pessoa abre o link, preenche o pedido e confirma. A corrida ganha protocolo e vai para o fornecedor no sistema.
+3. Na confirmação, o botão **Enviar ao fornecedor pelo WhatsApp** abre o WhatsApp dela com a mensagem pronta, que traz o link de resposta do fornecedor (`/f/<token>`).
+4. O fornecedor abre o link e aceita (informando motorista, placa e previsão) ou recusa; depois registra o embarque e o valor. A cada passo, a página oferece o botão para avisar o solicitante ou o planejamento pelo WhatsApp.
+5. O planejamento acompanha tudo pelo painel. No detalhe da corrida há botões para mandar a corrida ao fornecedor, falar com ele ou com o solicitante, e as ações (reenviar, cancelar) devolvem os botões de aviso.
+
+Os links funcionam como senha: quem tem o link pede em nome da pessoa (ou responde pelo fornecedor). **Gerar novo link** invalida o anterior, e uma corrida reenviada a outro fornecedor ganha link novo. Requer a migração `supabase/002_links_whatsapp.sql`.
+
+Se a API oficial estiver ligada (`WHATSAPP_MODO=meta`), os mesmos pedidos por link também disparam as mensagens automáticas.
 
 ## Ligando o WhatsApp (Cloud API da Meta)
 

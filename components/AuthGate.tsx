@@ -65,7 +65,8 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     <h2>Configuração incompleta</h2>
     <p className="err">Este ambiente não tem as variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY. Cadastre-as na Vercel (Settings → Environment Variables) e faça um novo deploy.</p>
   </section></main>;
-  if (path === "/redefinir-senha") return children;
+  // Páginas abertas por link (pedido da pessoa autorizada e resposta do fornecedor) não pedem login
+  if (path === "/redefinir-senha" || path.startsWith("/pedir/") || path.startsWith("/f/")) return children;
   if (session === undefined) return null;
   if (!session) return <Login />;
   if (!profile) return <main className="main"><section className="card">

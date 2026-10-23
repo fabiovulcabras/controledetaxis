@@ -6,6 +6,7 @@ import Crud from "@/components/Crud";
 import { Campo, PainelLateral, TopoPagina } from "@/components/Formulario";
 import { useApp } from "@/components/AuthGate";
 import { formatarTelefone } from "@/lib/telefone";
+import { linkWhatsApp, msgLinkPedido } from "@/lib/whatsapp/link";
 
 type Aba = "solicitantes" | "fornecedores" | "centros" | "unidades" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
@@ -28,7 +29,8 @@ export default function Cadastros() {
       </nav>
 
       {aba === "solicitantes" && <Crud key="sol" table="solicitantes" title="Pessoas autorizadas" nomeItem="solicitante" ordem="nome"
-        subtitulo="Só estes números conseguem pedir táxi pelo WhatsApp."
+        subtitulo="Só estas pessoas pedem táxi. Cada uma tem um link pessoal de pedido: use “Link de pedido” para enviar pelo WhatsApp."
+        acoesExtras={(r, recarregar) => r.ativo && r.token_pedido ? <LinkPedido pessoa={r} recarregar={recarregar} /> : null}
         fields={[
           { key: "nome", label: "Nome", required: true },
           { key: "telefone_whatsapp", label: "WhatsApp", required: true, mascara: "whatsapp", unico: true, placeholder: "(11) 98812-4471", ajuda: "O número que a pessoa usa no WhatsApp, com DDD." },
@@ -66,6 +68,47 @@ export default function Cadastros() {
 
       {aba === "parametros" && <Parametros />}
       {aba === "usuarios" && <Usuarios />}
+    </>
+  );
+}
+
+/** Envia ao solicitante o link pessoal de pedido, copia ou troca o link (o antigo deixa de valer). */
+function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido: string }; recarregar: () => Promise<void> }) {
+  const [aberto, setAberto] = useState(false);
+  const [msg, setMsg] = useState("");
+  const base = typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${base}/pedir/${pessoa.token_pedido}`;
+  const copiar = async () => {
+    try { await navigator.clipboard.writeText(url); setMsg("Link copiado."); } catch { setMsg("Não foi possível copiar; selecione o link e copie."); }
+  };
+  const trocar = async () => {
+    if (!window.confirm(`Gerar um novo link para ${pessoa.nome}? O link atual para de funcionar na hora.`)) return;
+    const novo = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+    const { error } = await supabase.from("solicitantes").update({ token_pedido: novo }).eq("id", pessoa.id);
+    setMsg(error ? error.message : "Novo link gerado. Envie para a pessoa.");
+    await recarregar();
+  };
+  return (
+    <>
+      <button type="button" className="ghost" onClick={() => setAberto(true)}>Link de pedido</button>
+      {aberto && (
+        <PainelLateral titulo="Link de pedido" subtitulo={pessoa.nome} onFechar={() => setAberto(false)} largura={520}>
+          <div className="painel-corpo">
+            <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+              <legend>Link pessoal</legend>
+              <p className="secao-ajuda">É por este link que {pessoa.nome.split(" ")[0]} pede táxi. Os pedidos saem no nome dela; quem tiver o link consegue pedir.</p>
+              <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link de pedido" />
+              <a className="botao-whatsapp" href={linkWhatsApp(pessoa.telefone_whatsapp, msgLinkPedido(pessoa.nome, base, pessoa.token_pedido))} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(pessoa.telefone_whatsapp)} pelo WhatsApp</a>
+              <div className="row">
+                <button type="button" className="ghost" onClick={copiar}>Copiar link</button>
+                <a className="ghost" href={url} target="_blank" rel="noopener noreferrer">Abrir</a>
+                <button type="button" className="ghost botao-perigo" onClick={trocar}>Gerar novo link</button>
+              </div>
+              {msg && <p className="resumo-entrada">{msg}</p>}
+            </fieldset>
+          </div>
+        </PainelLateral>
+      )}
     </>
   );
 }

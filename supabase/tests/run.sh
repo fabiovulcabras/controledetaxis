@@ -14,7 +14,8 @@ for teste in "$DIR"/[0-9][0-9]_*.sql; do
   echo "### $(basename "$teste")"
   "${PSQL[@]}" -d postgres -c "drop database if exists $BANCO" -c "create database $BANCO" >/dev/null
   "${PSQL[@]}" -d "$BANCO" -f "$DIR/stub_supabase.sql" >/dev/null
-  for f in schema.sql exemplo.sql; do "${PSQL[@]}" -d "$BANCO" -f "$MIG/$f" >/dev/null || { echo "Erro ao aplicar $f"; exit 1; }; done
+  migracoes=$(cd "$MIG" && ls [0-9][0-9][0-9]_*.sql 2>/dev/null | sort)
+  for f in schema.sql $migracoes exemplo.sql; do "${PSQL[@]}" -d "$BANCO" -f "$MIG/$f" >/dev/null || { echo "Erro ao aplicar $f"; exit 1; }; done
   saida="$("${PSQL[@]}" -d "$BANCO" -f "$teste" 2>&1)" || { echo "$saida"; echo "Erro de SQL em $(basename "$teste")"; exit 1; }
   echo "$saida"
   if grep -q "FALHA" <<<"$saida"; then falhou=1; fi

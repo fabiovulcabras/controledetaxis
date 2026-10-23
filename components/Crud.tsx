@@ -26,9 +26,11 @@ const mensagemErro = (error: { code?: string; message: string }) =>
     : error.code === "42501" || /row-level security|permission denied/i.test(error.message) ? "Você não tem permissão para alterar este cadastro."
     : error.message;
 
-export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem, aviso, aoSalvar, semAtivo }: {
+export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem, aviso, aoSalvar, semAtivo, acoesExtras }: {
   table: string; title: string; subtitulo?: string; nomeItem: string; fields: CampoCrud[]; ordem?: string;
   aviso?: ReactNode; aoSalvar?: () => void; semAtivo?: boolean;
+  /** Botões a mais na coluna Ações de cada linha. */
+  acoesExtras?: (registro: any, recarregar: () => Promise<void>) => ReactNode;
 }) {
   const [rows, setRows] = useState<any[]>([]);
   const [opcoes, setOpcoes] = useState<Record<string, { valor: string; rotulo: string }[]>>({});
@@ -154,6 +156,7 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
                   <td><div className="row" style={{ flexWrap: "nowrap" }}>
                     <button type="button" className="ghost" onClick={() => editar(r)}>Editar</button>
                     {!semAtivo && <button type="button" className="ghost" onClick={() => toggle(r)}>{r.ativo ? "Desativar" : "Reativar"}</button>}
+                    {acoesExtras?.(r, load)}
                   </div></td>
                 </tr>
               ))}

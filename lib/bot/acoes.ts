@@ -6,6 +6,9 @@ import { textoTemplate } from "../whatsapp/templates";
 const URL_PAINEL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 const linkCorrida = (c: Corrida) => (URL_PAINEL ? `${URL_PAINEL}/corridas?id=${c.id}` : "");
 
+/** 64 caracteres aleatórios (mesmo formato de fn_novo_token no banco). */
+export const novoToken = () => (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+
 export async function numero(repo: Repo, chave: string, padrao: number): Promise<number> {
   const v = Number(String((await repo.parametro(chave)) ?? "").replace(",", "."));
   return Number.isFinite(v) && v > 0 ? v : padrao;
@@ -51,7 +54,11 @@ export async function escolherFornecedor(repo: Repo, fornecedorPadraoId?: string
 export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora: Date, origem: OrigemEvento, obs?: string): Promise<{ corrida: Corrida; saidas: Saida[] }> {
   const minutos = c.tipo === "agendada" ? await numero(repo, "prazo_agendada_min", 120) : forn.prazo_resposta_min || 10;
   const prazo = new Date(agora.getTime() + minutos * 60_000);
-  const atual = await repo.mudarStatus(c.id, "enviada", origem, obs ?? `Enviada a ${forn.nome}`, { fornecedor_id: forn.id, prazo_resposta_em: prazo.toISOString() });
+  // Corrida que muda de fornecedor ganha link novo: o link antigo deixa de valer
+  const trocou = !!c.fornecedor_id && c.fornecedor_id !== forn.id;
+  const atual = await repo.mudarStatus(c.id, "enviada", origem, obs ?? `Enviada a ${forn.nome}`, {
+    fornecedor_id: forn.id, prazo_resposta_em: prazo.toISOString(), ...(trocou ? { token_fornecedor: novoToken() } : {}),
+  });
   const sol = await repo.solicitante(c.solicitante_id);
   const parametros = [
     c.protocolo, sol?.nome ?? "-", c.tipo === "imediata" ? `agora (${formatarHora(c.data_hora_prevista)})` : formatarDataHora(c.data_hora_prevista),
