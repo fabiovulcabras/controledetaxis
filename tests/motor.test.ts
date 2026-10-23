@@ -6,7 +6,7 @@ import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
 import { lerFaturaCsv } from "../lib/csv";
-import { enderecoDoNominatim } from "../lib/endereco";
+import { enderecoDoNominatim, sugestoesDoPhoton } from "../lib/endereco";
 import type { Entrada, Saida } from "../lib/bot/tipos";
 
 const ANA = "5511900000001";
@@ -384,5 +384,21 @@ describe("endereço pela localização", () => {
     await pedirTaxiCompleto(c);
     const corrida = { ...c.repo.corridas[0], origem_lat: -22.83396, origem_lng: -46.328 };
     expect(msgNovaCorridaFornecedor(corrida, "Ana", "https://app")).toContain("Mapa: https://maps.google.com/?q=-22.83396,-46.328");
+  });
+});
+
+describe("sugestões de endereço", () => {
+  it("formata, converte o estado em UF e remove repetidas", () => {
+    const geo = { features: [
+      { geometry: { coordinates: [-46.32, -22.85] }, properties: { street: "Rua das Indústrias", housenumber: "450", district: "Centro", city: "Extrema", state: "Minas Gerais" } },
+      { geometry: { coordinates: [-46.32, -22.85] }, properties: { street: "Rua das Indústrias", housenumber: "450", district: "Centro", city: "Extrema", state: "Minas Gerais" } },
+      { geometry: { coordinates: [-46.47, -23.43] }, properties: { name: "Aeroporto Internacional de Guarulhos", city: "Guarulhos", state: "São Paulo" } },
+      { geometry: { coordinates: [] }, properties: { name: "Sem coordenadas" } },
+    ] };
+    const s = sugestoesDoPhoton(geo);
+    expect(s).toHaveLength(2);
+    expect(s[0].endereco).toBe("Rua das Indústrias, 450 - Centro, Extrema - MG");
+    expect(s[0].lat).toBe(-22.85);
+    expect(s[1].endereco).toBe("Aeroporto Internacional de Guarulhos, Guarulhos - SP");
   });
 });

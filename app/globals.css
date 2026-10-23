@@ -604,3 +604,14 @@ th.num { text-align: right; }
 .minha-corrida .row { margin-top: 8px; }
 .publico .secao { grid-template-columns: minmax(0, 1fr); }
 .publico input, .publico select, .publico textarea { width: 100%; min-height: 46px; font-size: 16px; }
+
+/* Autocompletar de endereço */
+.campo-endereco { position: relative; }
+.campo-endereco-busca { position: absolute; top: 50%; right: 12px; transform: translateY(-50%); color: var(--slate-400); font-size: 12px; pointer-events: none; }
+.sugestoes { position: absolute; z-index: 20; top: calc(100% + 4px); right: 0; left: 0; margin: 0; padding: 4px 0; list-style: none; border: 1px solid var(--slate-200); border-radius: 10px; background: #fff; box-shadow: 0 8px 24px rgba(13, 44, 84, .14); }
+.sugestoes li { display: grid; gap: 1px; padding: 9px 12px; cursor: pointer; }
+.sugestoes li:hover, .sugestoes li.ativa { background: var(--slate-100); }
+.sugestoes strong { color: var(--navy); font-size: 15px; font-weight: 600; }
+.sugestoes small { color: var(--slate-500); font-size: 13px; }
+.sugestoes .sugestoes-fonte { padding: 4px 12px; color: var(--slate-400); font-size: 11px; cursor: default; }
+.sugestoes .sugestoes-fonte:hover { background: none; }

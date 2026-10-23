@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import BrandMark from "@/components/BrandMark";
 import { Campo } from "@/components/Formulario";
+import CampoEndereco from "@/components/CampoEndereco";
 
 type Dados = {
   nome: string; endereco_unidade: string | null; centros: { id: string; rotulo: string }[]; centro_padrao: string | null;
@@ -14,7 +15,7 @@ type Dados = {
 };
 type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
 
-const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", centro_custo_id: "", motivo: "", motivo_outro: "" };
+const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", centro_custo_id: "", motivo: "", motivo_outro: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
 
 /** Página pessoal de pedido de táxi, aberta pelo link que a pessoa autorizada recebe no WhatsApp. */
@@ -47,6 +48,8 @@ export default function Pedir() {
     // Origem digitada à mão deixa de valer como ponto do mapa
     setForm({ ...form, [k]: e.target.value, ...(k === "origem" ? { origem_lat: null, origem_lng: null } : {}) });
   const [localizando, setLocalizando] = useState(false);
+  const [minhaPosicao, setMinhaPosicao] = useState<{ lat: number; lng: number } | null>(null);
+  const perto = minhaPosicao ?? (form.origem_lat != null && form.origem_lng != null ? { lat: form.origem_lat, lng: form.origem_lng } : null);
 
   const usarLocalizacao = () => {
     setErr("");
@@ -55,6 +58,7 @@ export default function Pedir() {
     navigator.geolocation.getCurrentPosition(
       async (p) => {
         const lat = p.coords.latitude, lng = p.coords.longitude;
+        setMinhaPosicao({ lat, lng });
         const r = await fetch(`/api/endereco?lat=${lat}&lng=${lng}`).catch(() => null);
         const j = r ? await r.json().catch(() => ({})) : {};
         setLocalizando(false);
@@ -75,7 +79,7 @@ export default function Pedir() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
-        origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
+        origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
         centro_custo_id: form.centro_custo_id, motivo,
       }),
     });
@@ -137,14 +141,16 @@ export default function Pedir() {
             </Campo>
             {form.tipo === "agendada" && <Campo rotulo="Data e hora" obrigatorio><input type="datetime-local" min={minimo} value={form.data_hora} onChange={campo("data_hora")} /></Campo>}
             <Campo rotulo="Origem" obrigatorio ajuda={<span className="row">
-              {dados.endereco_unidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: dados.endereco_unidade! })}>Sair da unidade</button>}
+              {dados.endereco_unidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: dados.endereco_unidade!, origem_lat: null, origem_lng: null })}>Sair da unidade</button>}
               <button type="button" className="atalho" onClick={usarLocalizacao} disabled={localizando}>{localizando ? "Buscando endereço…" : "Usar minha localização"}</button>
             </span>}>
-              <input value={form.origem} onChange={campo("origem")} placeholder="Rua, número, bairro" autoComplete="street-address" />
-              {form.origem_lat != null && <span className="campo-ajuda">Endereço aproximado pela localização do celular. Confira o número e corrija se precisar.</span>}
+              <CampoEndereco valor={form.origem} placeholder="Digite rua e número ou um local" perto={perto}
+                onMudar={(origem, lat, lng) => setForm((f) => ({ ...f, origem, origem_lat: lat, origem_lng: lng }))} />
+              {form.origem_lat != null && <span className="campo-ajuda">Confira o número; se precisar, corrija.</span>}
             </Campo>
-            <Campo rotulo="Destino" obrigatorio ajuda={dados.endereco_unidade ? <button type="button" className="atalho" onClick={() => setForm({ ...form, destino: dados.endereco_unidade! })}>Ir para a unidade</button> : undefined}>
-              <input value={form.destino} onChange={campo("destino")} placeholder="Rua, número, bairro ou local" />
+            <Campo rotulo="Destino" obrigatorio ajuda={dados.endereco_unidade ? <button type="button" className="atalho" onClick={() => setForm({ ...form, destino: dados.endereco_unidade!, destino_lat: null, destino_lng: null })}>Ir para a unidade</button> : undefined}>
+              <CampoEndereco valor={form.destino} placeholder="Digite rua e número ou um local" perto={perto}
+                onMudar={(destino, lat, lng) => setForm((f) => ({ ...f, destino, destino_lat: lat, destino_lng: lng }))} />
             </Campo>
             <Campo rotulo="Passageiros" obrigatorio>
               <select value={form.qtd_passageiros} onChange={campo("qtd_passageiros")}>

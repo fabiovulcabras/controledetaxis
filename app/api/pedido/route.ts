@@ -78,6 +78,7 @@ export async function POST(req: Request) {
       solicitante_id: sol.id, centro_custo_id: cc.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim() || null : null, motivo,
       origem_lat: Number.isFinite(corpo.origem_lat) ? corpo.origem_lat : null, origem_lng: Number.isFinite(corpo.origem_lng) ? corpo.origem_lng : null,
+      destino_lat: Number.isFinite(corpo.destino_lat) ? corpo.destino_lat : null, destino_lng: Number.isFinite(corpo.destino_lng) ? corpo.destino_lng : null,
     });
 
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id);
