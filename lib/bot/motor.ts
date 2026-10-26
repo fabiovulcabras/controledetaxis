@@ -1,4 +1,4 @@
-import type { Corrida, Entrada, Fornecedor, Opcao, Repo, Saida, Solicitante } from "./tipos";
+import type { Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
 import { CANCELAVEIS, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
@@ -152,12 +152,25 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   const unidade = sol.unidade_id ? await repo.unidade(sol.unidade_id) : null;
   const pQuando = () => pergunta(tel, "Para quando é o táxi?", OPCOES_QUANDO);
   const pData = () => pergunta(tel, "Informe a data e a hora. Exemplos: 24/10 07:30, amanhã 7h, hoje 18:40.");
-  const pOrigem = () => unidade?.endereco_padrao
-    ? pergunta(tel, `De onde sai? Envie o endereço ou a localização, ou toque abaixo para sair da unidade (${unidade.endereco_padrao}).`, [{ id: "origem_unidade", titulo: "Sair da unidade" }])
-    : pergunta(tel, "De onde sai? Envie o endereço ou a localização.");
-  const pDestino = () => unidade?.endereco_padrao
-    ? pergunta(tel, "Para onde vai? Envie o endereço ou a localização.", [{ id: "destino_unidade", titulo: "Ir para a unidade" }])
-    : pergunta(tel, "Para onde vai? Envie o endereço ou a localização.");
+  // Unidades e locais frequentes cadastrados viram opções de origem e destino (a unidade da pessoa primeiro)
+  let cacheLocais: LocalCadastrado[] | null = null;
+  const locais = async () => {
+    if (!cacheLocais) {
+      const todos = await repo.locaisCadastrados();
+      cacheLocais = [...todos.filter((l) => l.id === unidade?.id), ...todos.filter((l) => l.id !== unidade?.id)].slice(0, 10);
+    }
+    return cacheLocais;
+  };
+  const idLocal = (l: LocalCadastrado, padrao: "origem" | "destino") => (l.id === unidade?.id ? `${padrao}_unidade` : `local:${l.id}`);
+  const pLugar = async (padrao: "origem" | "destino"): Promise<Saida> => {
+    const lista = await locais();
+    const pergunta1 = padrao === "origem" ? "De onde sai?" : "Para onde vai?";
+    if (!lista.length) return pergunta(tel, `${pergunta1} Envie o endereço ou a localização.`);
+    return pergunta(tel, `${pergunta1} Envie o endereço ou a localização, ou escolha um local cadastrado.`,
+      lista.map((l) => ({ id: idLocal(l, padrao), titulo: l.nome.slice(0, 24), descricao: l.endereco.slice(0, 72) })), "Locais cadastrados");
+  };
+  const pOrigem = () => pLugar("origem");
+  const pDestino = () => pLugar("destino");
   const pPax = () => pergunta(tel, "Quantos passageiros?", OPCOES_PAX);
   const centros = async () => (await repo.centrosCusto(sol.unidade_id)).filter((c) => c.ativo).slice(0, 10);
   const pCentro = async (): Promise<Saida> => {
@@ -179,14 +192,23 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       `Centro de custo: ${cc ? `${cc.codigo} · ${cc.descricao}` : "-"}`, `Motivo: ${d.motivo}`,
     ].join("\n"), OPCOES_CONFIRMAR);
   };
-  const lugar = (padrao: "origem" | "destino") => {
+  const lugar = async (padrao: "origem" | "destino") => {
     if (e.localizacao) {
       const { nome, endereco, lat, lng } = e.localizacao;
       // Local escolhido no mapa (nome + endereço), endereço da localização atual, ou as coordenadas se não houver endereço
       const texto = nome && endereco && !endereco.startsWith(nome) ? `${nome} – ${endereco}` : endereco || nome || `Localização ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
       return { texto, lat, lng };
     }
-    if (e.botaoId === `${padrao}_unidade` && unidade?.endereco_padrao) return { texto: `${unidade.nome} · ${unidade.endereco_padrao}`, lat: null, lng: null };
+    const comoLugar = (l: LocalCadastrado) => ({ texto: `${l.nome} – ${l.endereco}`, lat: l.lat, lng: l.lng });
+    const lista = await locais();
+    const escolhido = e.botaoId ? lista.find((l) => idLocal(l, padrao) === e.botaoId) : null;
+    if (escolhido) return comoLugar(escolhido);
+    // Número da opção digitado ("1") ou o nome do local escrito ("pronto socorro municipal")
+    const t = semAcento(e.texto ?? "");
+    const n = Number(t);
+    if (!e.botaoId && Number.isInteger(n) && n >= 1 && n <= lista.length) return comoLugar(lista[n - 1]);
+    const porNome = t.length >= 4 ? lista.filter((l) => semAcento(l.nome) === t || (t.length >= 5 && semAcento(l.nome).startsWith(t))) : [];
+    if (!e.botaoId && porNome.length === 1) return comoLugar(porNome[0]);
     if ((e.texto ?? "").length >= 4 && !e.botaoId) return { texto: e.texto!, lat: null, lng: null };
     return null;
   };
@@ -213,7 +235,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
 
     case "quando": {
       const op = escolha(e, OPCOES_QUANDO);
-      if (op === "agora") return ir("origem", pOrigem(), { tipo: "imediata", data_hora_prevista: agora.toISOString() });
+      if (op === "agora") return ir("origem", await pOrigem(), { tipo: "imediata", data_hora_prevista: agora.toISOString() });
       if (op === "agendar") return ir("data", pData());
       const direto = e.texto ? lerDataHora(e.texto, agora) : null;
       if (direto) return validarData(direto);
@@ -227,14 +249,14 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     }
 
     case "origem": {
-      const l = lugar("origem");
-      if (!l) return invalida(pOrigem());
-      return ir("destino", pDestino(), { origem: l.texto, origem_lat: l.lat, origem_lng: l.lng });
+      const l = await lugar("origem");
+      if (!l) return invalida(await pOrigem());
+      return ir("destino", await pDestino(), { origem: l.texto, origem_lat: l.lat, origem_lng: l.lng });
     }
 
     case "destino": {
-      const l = lugar("destino");
-      if (!l) return invalida(pDestino());
+      const l = await lugar("destino");
+      if (!l) return invalida(await pDestino());
       return ir("passageiros", pPax(), { destino: l.texto, destino_lat: l.lat, destino_lng: l.lng });
     }
 
@@ -322,7 +344,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     const maxDias = await numero(repo, "antecedencia_maxima_dias", 30);
     if (d.getTime() < agora.getTime() - 60_000) return invalida(pergunta(tel, "Essa data e hora já passaram. Informe uma data e hora futuras."));
     if (d.getTime() > agora.getTime() + maxDias * 86400_000) return invalida(pergunta(tel, `Só é possível agendar até ${maxDias} dias à frente. Informe outra data.`));
-    return ir("origem", pOrigem(), { tipo: "agendada", data_hora_prevista: d.toISOString() });
+    return ir("origem", await pOrigem(), { tipo: "agendada", data_hora_prevista: d.toISOString() });
   }
 }
 

@@ -631,3 +631,36 @@ describe("palavra de ativação", () => {
     expect(ultima(s, ANA).texto).toContain("foi aceita por");
   });
 });
+
+describe("locais cadastrados no bot", () => {
+  it("oferece unidade e locais frequentes e aceita a escolha, o número ou o nome", async () => {
+    const c = conversa();
+    c.repo.locais.push(
+      { id: "l1", nome: "Pronto Socorro Municipal", endereco: "Rua B, 20 - Centro, Extrema - MG", lat: -22.86, lng: -46.32, tipo: "local" },
+      { id: "l2", nome: "Rodoviária", endereco: "Av. Rodoviária, 1 - Extrema - MG", lat: null, lng: null, tipo: "local" },
+    );
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    const s = await c.enviar({ telefone: ANA, botaoId: "agora" });
+    const pergunta = ultima(s, ANA);
+    expect(pergunta.opcoes?.map((o) => o.titulo)).toEqual(["Unidade Centro", "Pronto Socorro Municipal", "Rodoviária"]);
+    expect(pergunta.opcoes?.[0].id).toBe("origem_unidade");
+    await c.enviar({ telefone: ANA, botaoId: "local:l1" });
+    let conv = await c.repo.conversa(ANA);
+    expect(conv?.dados.origem).toBe("Pronto Socorro Municipal – Rua B, 20 - Centro, Extrema - MG");
+    expect(conv?.dados.origem_lat).toBe(-22.86);
+    await c.enviar({ telefone: ANA, texto: "rodoviaria" });
+    conv = await c.repo.conversa(ANA);
+    expect(conv?.dados.destino).toBe("Rodoviária – Av. Rodoviária, 1 - Extrema - MG");
+  });
+
+  it("número digitado escolhe o local da lista", async () => {
+    const c = conversa();
+    c.repo.locais.push({ id: "l1", nome: "Pronto Socorro Municipal", endereco: "Rua B, 20", lat: null, lng: null, tipo: "local" });
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, texto: "2" });
+    expect((await c.repo.conversa(ANA))?.dados.origem).toBe("Pronto Socorro Municipal – Rua B, 20");
+  });
+});

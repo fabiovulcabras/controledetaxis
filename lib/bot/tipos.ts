@@ -10,7 +10,9 @@ export type Fornecedor = {
   id: string; nome: string; telefone_whatsapp: string; prioridade: number; prazo_resposta_min: number; ativo: boolean;
   bandeirada?: number | null; valor_km?: number | null; token_portal?: string;
 };
-export type Unidade = { id: string; nome: string; endereco_padrao?: string | null };
+export type Unidade = { id: string; nome: string; endereco_padrao?: string | null; lat?: number | null; lng?: number | null; ativo?: boolean };
+/** Unidade com endereço ou local frequente (Cadastros), oferecido como origem e destino. */
+export type LocalCadastrado = { id: string; nome: string; endereco: string; lat: number | null; lng: number | null; tipo: "unidade" | "local" };
 export type CentroCusto = { id: string; codigo: string; descricao: string; unidade_id?: string | null; teto_por_corrida?: number | null; ativo: boolean };
 
 export type Corrida = {
@@ -70,6 +72,8 @@ export interface Repo {
   fornecedor(id: string): Promise<Fornecedor | null>;
   fornecedoresAtivos(): Promise<Fornecedor[]>;
   unidade(id: string): Promise<Unidade | null>;
+  /** Unidades ativas com endereço e locais frequentes ativos, por nome. */
+  locaisCadastrados(): Promise<LocalCadastrado[]>;
   centroCusto(id: string): Promise<CentroCusto | null>;
   centrosCusto(unidadeId?: string | null): Promise<CentroCusto[]>;
   parametro(chave: string): Promise<string | null>;

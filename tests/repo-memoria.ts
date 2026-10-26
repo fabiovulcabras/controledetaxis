@@ -1,4 +1,4 @@
-import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "../lib/bot/tipos";
+import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, LocalCadastrado, NovaCorrida, Repo, Solicitante, Unidade } from "../lib/bot/tipos";
 import { transicaoValida, type OrigemEvento, type StatusCorrida } from "../lib/status";
 import { variantesTelefone } from "../lib/telefone";
 import { inicioDoMesSP } from "../lib/datas";
@@ -8,6 +8,7 @@ export class RepoMemoria implements Repo {
   solicitantes: Solicitante[] = [];
   fornecedores: Fornecedor[] = [];
   unidades: Unidade[] = [];
+  locais: LocalCadastrado[] = [];
   centros: CentroCusto[] = [];
   parametros: Record<string, string> = {};
   conversas = new Map<string, Conversa>();
@@ -21,6 +22,13 @@ export class RepoMemoria implements Repo {
   async fornecedor(id: string) { return this.fornecedores.find((f) => f.id === id) ?? null; }
   async fornecedoresAtivos() { return this.fornecedores.filter((f) => f.ativo); }
   async unidade(id: string) { return this.unidades.find((u) => u.id === id) ?? null; }
+  async locaisCadastrados() {
+    return [
+      ...this.unidades.filter((u) => u.endereco_padrao && u.ativo !== false)
+        .map((u) => ({ id: u.id, nome: u.nome, endereco: u.endereco_padrao!, lat: u.lat ?? null, lng: u.lng ?? null, tipo: "unidade" as const })),
+      ...this.locais,
+    ];
+  }
   async centroCusto(id: string) { return this.centros.find((c) => c.id === id) ?? null; }
   async centrosCusto(unidadeId?: string | null) { return this.centros.filter((c) => !unidadeId || !c.unidade_id || c.unidade_id === unidadeId); }
   async parametro(chave: string) { return this.parametros[chave] ?? null; }

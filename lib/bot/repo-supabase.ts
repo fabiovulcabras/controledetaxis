@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
+import type { LocalCadastrado, CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
 import type { OrigemEvento, StatusCorrida } from "../status";
 import { variantesTelefone } from "../telefone";
 import { inicioDoMesSP } from "../datas";
@@ -28,6 +28,19 @@ export class RepoSupabase implements Repo {
   async solicitante(id: string) { return this.emCache<Solicitante>("solicitantes", id); }
   async fornecedor(id: string) { return this.emCache<Fornecedor>("fornecedores", id); }
   async unidade(id: string) { return this.emCache<Unidade>("unidades", id); }
+  async locaisCadastrados(): Promise<LocalCadastrado[]> {
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const [u, l] = await Promise.all([
+      this.db.from("unidades").select("*").eq("ativo", true).order("nome"),
+      this.db.from("locais").select("*").eq("ativo", true).order("nome"), // sem a migração 005, só as unidades
+    ]);
+    falhar("Ler unidades", u.error);
+    return [
+      ...(u.data ?? []).filter((x: any) => String(x.endereco_padrao ?? "").trim())
+        .map((x: any) => ({ id: x.id, nome: x.nome, endereco: String(x.endereco_padrao).trim(), lat: num(x.lat), lng: num(x.lng), tipo: "unidade" as const })),
+      ...(l.error ? [] : l.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, endereco: String(x.endereco).trim(), lat: num(x.lat), lng: num(x.lng), tipo: "local" as const })),
+    ];
+  }
   async centroCusto(id: string) { return this.emCache<CentroCusto>("centros_custo", id); }
   async fornecedoresAtivos() {
     const { data, error } = await this.db.from("fornecedores").select("*").eq("ativo", true).order("prioridade");
