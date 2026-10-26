@@ -12,6 +12,22 @@ export function enderecoDoNominatim(r: any): string | null {
   return texto || r?.display_name || null;
 }
 
+/**
+ * Endereço escrito a partir de coordenadas (geocodificação reversa gratuita do Nominatim/OpenStreetMap).
+ * Devolve null se o serviço não responder em 5 s; quem chama segue com as coordenadas.
+ */
+export async function enderecoPorCoordenadas(lat: number, lng: number, identificacao = "app interno"): Promise<string | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=pt-BR`,
+      { headers: { "User-Agent": `ControleDeTaxis/1.0 (${identificacao})` }, cache: "no-store", signal: AbortSignal.timeout(5000) },
+    );
+    if (!resp.ok) return null;
+    return enderecoDoNominatim(await resp.json());
+  } catch { return null; }
+}
+
 export type Sugestao = { endereco: string; detalhe: string; lat: number; lng: number };
 
 const UF: Record<string, string> = {

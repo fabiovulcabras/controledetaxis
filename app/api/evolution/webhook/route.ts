@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { processarEntrada } from "@/lib/bot/motor";
 import { lerWebhookEvolution } from "@/lib/whatsapp/evolution";
-import { despacharSaidas, registrarEntrada, traduzirOpcaoNumerada, vincularEntrada } from "@/lib/whatsapp/transporte";
+import { completarLocalizacao, despacharSaidas, registrarEntrada, traduzirOpcaoNumerada, vincularEntrada } from "@/lib/whatsapp/transporte";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
       const entrada = await traduzirOpcaoNumerada(db, bruta);
       const id = await registrarEntrada(db, entrada, "evolution", waId || undefined);
       if (!id) continue; // a Evolution reenviou a mesma mensagem: já foi tratada
-      const saidas = await processarEntrada(entrada, repo, new Date());
+      const saidas = await processarEntrada(await completarLocalizacao(entrada), repo, new Date());
       await vincularEntrada(db, id, saidas);
       await despacharSaidas(db, saidas); // envia pela Evolution e agenda no QStash o prazo de quem recebeu a corrida
     } catch (err) {

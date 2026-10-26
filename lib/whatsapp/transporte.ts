@@ -4,6 +4,7 @@ import { payloadMeta } from "./meta";
 import { textoTemplate } from "./templates";
 import { enviarEmailsPlanejamento } from "../email";
 import { agendarPrazosPendentes } from "../qstash";
+import { enderecoPorCoordenadas } from "../endereco";
 import { enviarTextoEvolution, evolutionConfigurada, textoComOpcoes, traduzirResposta } from "./evolution";
 
 /** whatsapp = Cloud API oficial da Meta; evolution = Evolution API; simulado = só grava no histórico. */
@@ -20,6 +21,17 @@ export const modoEnvio = (): Canal =>
 
 /** O app manda as mensagens sozinho (Meta ou Evolution)? Senão, quem leva a mensagem é a pessoa, pelos botões de WhatsApp. */
 export const envioAutomatico = () => modoEnvio() !== "simulado";
+
+/**
+ * Localização enviada pelo WhatsApp: com "localização atual" chegam só as coordenadas.
+ * Busca o endereço escrito (OpenStreetMap) antes de o bot usar, para a corrida não ficar com "-22.85, -46.31".
+ */
+export async function completarLocalizacao(e: Entrada): Promise<Entrada> {
+  const loc = e.localizacao;
+  if (!loc || loc.endereco) return e;
+  const endereco = await enderecoPorCoordenadas(loc.lat, loc.lng, process.env.NEXT_PUBLIC_APP_URL || "app interno");
+  return endereco ? { ...e, localizacao: { ...loc, endereco } } : e;
+}
 
 /**
  * Evolution não tem botões: a resposta "1" vira a 1ª opção da última mensagem com opções enviada a este número.

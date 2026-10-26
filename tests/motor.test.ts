@@ -567,3 +567,18 @@ describe("Evolution API e fila com prazo (QStash)", () => {
     expect(await assinaturaQStashValida(null, corpo, ["atual"], agora)).toBe(false);
   });
 });
+
+describe("localização enviada pelo WhatsApp", () => {
+  it("usa o endereço escrito e mantém o nome do local escolhido no mapa", async () => {
+    const c = conversa();
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, localizacao: { lat: -22.85, lng: -46.31, endereco: "Rua A, 10 - Centro, Extrema - MG" } });
+    await c.enviar({ telefone: ANA, localizacao: { lat: -22.86, lng: -46.32, nome: "Pronto Socorro Municipal", endereco: "Rua B, 20 - Centro, Extrema - MG" } });
+    const conv = await c.repo.conversa(ANA);
+    expect(conv?.dados.origem).toBe("Rua A, 10 - Centro, Extrema - MG");
+    expect(conv?.dados.origem_lat).toBe(-22.85);
+    expect(conv?.dados.destino).toBe("Pronto Socorro Municipal – Rua B, 20 - Centro, Extrema - MG");
+  });
+});

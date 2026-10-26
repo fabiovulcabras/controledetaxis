@@ -137,7 +137,12 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     ].join("\n"), OPCOES_CONFIRMAR);
   };
   const lugar = (padrao: "origem" | "destino") => {
-    if (e.localizacao) return { texto: e.localizacao.endereco || e.localizacao.nome || `Localização ${e.localizacao.lat.toFixed(5)}, ${e.localizacao.lng.toFixed(5)}`, lat: e.localizacao.lat, lng: e.localizacao.lng };
+    if (e.localizacao) {
+      const { nome, endereco, lat, lng } = e.localizacao;
+      // Local escolhido no mapa (nome + endereço), endereço da localização atual, ou as coordenadas se não houver endereço
+      const texto = nome && endereco && !endereco.startsWith(nome) ? `${nome} – ${endereco}` : endereco || nome || `Localização ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      return { texto, lat, lng };
+    }
     if (e.botaoId === `${padrao}_unidade` && unidade?.endereco_padrao) return { texto: `${unidade.nome} · ${unidade.endereco_padrao}`, lat: null, lng: null };
     if ((e.texto ?? "").length >= 4 && !e.botaoId) return { texto: e.texto!, lat: null, lng: null };
     return null;
