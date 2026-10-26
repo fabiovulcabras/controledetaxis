@@ -63,8 +63,8 @@ export async function GET() {
   }
   if (process.env.QSTASH_TOKEN) {
     const chaves = !!(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY);
-    const url = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);
-    itens.push({ ok: chaves && url, item: "Prazos pelo Upstash QStash", detalhe: !chaves ? "Faltam QSTASH_CURRENT_SIGNING_KEY e QSTASH_NEXT_SIGNING_KEY." : !url ? "Falta NEXT_PUBLIC_APP_URL (endereço público do app)." : undefined });
+    const temEndereco = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);
+    itens.push({ ok: chaves && temEndereco, item: "Prazos pelo Upstash QStash", detalhe: !chaves ? "Faltam QSTASH_CURRENT_SIGNING_KEY e QSTASH_NEXT_SIGNING_KEY." : !temEndereco ? "Falta NEXT_PUBLIC_APP_URL (endereço público do app)." : undefined });
     if (url && servico) {
       const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false } });
       const { error } = await db.from("corrida_tentativas").select("id", { head: true, count: "exact" }).limit(1);

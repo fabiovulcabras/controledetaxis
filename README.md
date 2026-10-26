@@ -31,7 +31,7 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -78,6 +78,29 @@ Se a API oficial estiver ligada (`WHATSAPP_MODO=meta`), os mesmos pedidos por li
 
 Mensagens que o bot inicia (fornecedor e planejamento) sempre saem como modelo. Avisos ao solicitante saem como texto livre se ele falou com o bot nas últimas 24 h; senão, como modelo. A Meta cobra por modelo entregue.
 
+## Ligando o WhatsApp pela Evolution API (não oficial)
+
+A Evolution API conecta um número comum de WhatsApp pelo WhatsApp Web (lendo um QR code), sem aprovação da Meta e sem modelos. Ela roda num servidor seu (Docker), fora da Vercel. **Atenção:** é um uso não oficial; o WhatsApp pode bloquear o número. Use um número dedicado, não o pessoal.
+
+1. Suba a Evolution API v2, crie uma instância e conecte o número lendo o QR code.
+2. Na Vercel, defina `WHATSAPP_MODO=evolution`, `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `EVOLUTION_WEBHOOK_TOKEN` (uma frase aleatória sua).
+3. No webhook da instância: URL `https://SEU-APP/api/evolution/webhook?token=<EVOLUTION_WEBHOOK_TOKEN>`, "Webhook by events" desligado, evento **MESSAGES_UPSERT** ligado.
+4. Abra `/api/saude` para conferir.
+
+Como não há botões, as opções saem numeradas ("*1* – Aceitar", "*2* – Recusar") e a resposta "1" vira a opção correspondente da última mensagem enviada àquele número.
+
+Fluxo: a pessoa autorizada conversa com o bot → a corrida é gravada e enviada ao **1º fornecedor da fila** (o padrão da pessoa; depois os ativos por prioridade) → o prazo é agendado no QStash → "1" aceita (o solicitante recebe a confirmação com os dados do motorista), "2" recusa e passa ao próximo; sem resposta no prazo, o fornecedor perde a vez e a corrida vai ao próximo. Sem ninguém na fila, o planejamento é alertado. Cada envio fica em `corrida_tentativas` (ordem, prazo, resultado). O prazo é o "Prazo para responder" de cada fornecedor em Cadastros (ex.: 5 min).
+
+## Prazos pelo Upstash QStash
+
+Na Vercel a função termina logo após responder, então o "relógio" do prazo fica no QStash: ao enviar a corrida a um fornecedor, o app agenda `POST /api/qstash/prazo` para o instante do prazo. Se o fornecedor ainda não respondeu, a rota passa a corrida ao próximo da fila e agenda o novo prazo; se já respondeu, não faz nada.
+
+1. Crie a conta gratuita no Upstash e abra o QStash. Copie `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY` e `QSTASH_NEXT_SIGNING_KEY` para a Vercel. Se o painel mostrar uma `QSTASH_URL` regional, copie também.
+2. Garanta `NEXT_PUBLIC_APP_URL` com o endereço público do app (o QStash chama esse endereço). Se a Vercel tiver "Deployment Protection" ligada para produção, a rota precisa ficar acessível.
+3. Deixe `reenvio_automatico = sim` em Parâmetros.
+
+O agendador abaixo continua valendo como rede de segurança (e é ele que envia os lembretes).
+
 ## Agendador (prazos e lembretes)
 
 `/api/cron/prazos` marca como **Sem resposta** as corridas com prazo vencido e envia lembretes das agendadas. Rode a cada 1–5 minutos com o cabeçalho `Authorization: Bearer <CRON_SECRET>`.
@@ -96,6 +119,8 @@ app/                     telas (Next.js App Router) e rotas de API
   api/whatsapp/webhook   recebe mensagens da Meta
   api/corridas/acao      ações do planejamento sobre uma corrida
   api/cron/prazos        agendador
+  api/evolution/webhook  recebe mensagens da Evolution API
+  api/qstash/prazo       fim do prazo do fornecedor (chamado pelo QStash)
   api/usuarios           convite de usuários (admin)
   api/pedido, api/fornecedor, api/portal  rotas públicas dos links (com token e limite de tentativas)
   api/endereco           endereço escrito da localização e sugestões (OpenStreetMap)
@@ -103,7 +128,8 @@ app/                     telas (Next.js App Router) e rotas de API
 lib/bot/motor.ts         máquina de conversa do bot (solicitante e fornecedor)
 lib/bot/acoes.ts         despachar, cancelar, alertar, prazos, lembretes
 lib/bot/repo-supabase.ts acesso a dados do bot
-lib/whatsapp/            modelos, montagem do payload da Meta e envio
+lib/whatsapp/            modelos, payload da Meta, Evolution API e envio
+lib/qstash.ts            agendamento e assinatura do QStash
 supabase/schema.sql      tabelas, funções, RLS
 supabase/00N_*.sql       migrações, rodar na ordem
 supabase/tests/          cenários de teste do banco
