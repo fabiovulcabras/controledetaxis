@@ -31,7 +31,7 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -86,6 +86,8 @@ A Evolution API conecta um número comum de WhatsApp pelo WhatsApp Web (lendo um
 2. Na Vercel, defina `WHATSAPP_MODO=evolution`, `EVOLUTION_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCIA` e `EVOLUTION_WEBHOOK_TOKEN` (uma frase aleatória sua).
 3. No webhook da instância: URL `https://SEU-APP/api/evolution/webhook?token=<EVOLUTION_WEBHOOK_TOKEN>`, "Webhook by events" desligado, evento **MESSAGES_UPSERT** ligado.
 4. Abra `/api/saude` para conferir.
+
+**Palavra de ativação:** se o número do bot também é usado para conversas comuns, preencha `palavra_ativacao` em Parâmetros (ex.: `taxi`). O bot passa a responder só a mensagens com a palavra, a conversas já em andamento e a fornecedores respondendo corridas; o resto é ignorado sem resposta e sem ser gravado.
 
 Como não há botões, as opções saem numeradas ("*1* – Aceitar", "*2* – Recusar") e a resposta "1" vira a opção correspondente da última mensagem enviada àquele número.
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { processarEntrada, lerMotorista } from "../lib/bot/motor";
+import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
@@ -580,5 +580,54 @@ describe("localização enviada pelo WhatsApp", () => {
     expect(conv?.dados.origem).toBe("Rua A, 10 - Centro, Extrema - MG");
     expect(conv?.dados.origem_lat).toBe(-22.85);
     expect(conv?.dados.destino).toBe("Pronto Socorro Municipal – Rua B, 20 - Centro, Extrema - MG");
+  });
+});
+
+describe("palavra de ativação", () => {
+  it("reconhece a palavra inteira, sem acento nem maiúscula", () => {
+    expect(contemPalavra("Preciso de um TÁXI agora", ["taxi"])).toBe(true);
+    expect(contemPalavra("táxi", ["taxi", "corrida"])).toBe(true);
+    expect(contemPalavra("quero uma corrida", ["taxi", "corrida"])).toBe(true);
+    expect(contemPalavra("o taxista chegou", ["taxi"])).toBe(false);
+    expect(contemPalavra("oi, tudo bem?", ["taxi"])).toBe(false);
+  });
+
+  it("ignora conversa comum e só começa com a palavra; a conversa segue sem repetir a palavra", async () => {
+    const c = conversa();
+    c.repo.parametros.palavra_ativacao = "taxi";
+    expect(await c.enviar({ telefone: ANA, texto: "oi, tudo bem?" })).toEqual([]);
+    expect(await c.enviar({ telefone: "5511988887777", texto: "boa tarde" })).toEqual([]); // número desconhecido também
+    const s = await c.enviar({ telefone: ANA, texto: "Preciso de um táxi" });
+    expect(s[0].opcoes?.map((o) => o.id)).toEqual(["pedir", "minhas", "cancelar"]);
+    await c.enviar({ telefone: ANA, texto: "1" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    await c.enviar({ telefone: ANA, botaoId: "cc:cc1" });
+    await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    const fim = await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    expect(ultima(fim, ANA).texto).toContain("registrada");
+    // Pedido feito: a conversa acaba e um "obrigado" não aciona o bot
+    expect(await c.enviar({ telefone: ANA, texto: "obrigado!" })).toEqual([]);
+  });
+
+  it("fornecedor responde à corrida sem a palavra, mas conversa comum dele é ignorada", async () => {
+    const c = conversa();
+    c.repo.parametros.palavra_ativacao = "taxi";
+    await c.enviar({ telefone: ANA, texto: "taxi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    await c.enviar({ telefone: ANA, botaoId: "cc:cc1" });
+    await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    expect(await c.enviar({ telefone: RTC, texto: "bom dia" })).toEqual([]);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    expect(c.repo.corridas[0].status).toBe("aceita");
+    const s = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    expect(ultima(s, ANA).texto).toContain("foi aceita por");
   });
 });

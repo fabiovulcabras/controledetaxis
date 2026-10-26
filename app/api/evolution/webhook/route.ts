@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
-import { processarEntrada } from "@/lib/bot/motor";
+import { deveAtender, processarEntrada } from "@/lib/bot/motor";
 import { lerWebhookEvolution } from "@/lib/whatsapp/evolution";
 import { completarLocalizacao, despacharSaidas, registrarEntrada, traduzirOpcaoNumerada, vincularEntrada } from "@/lib/whatsapp/transporte";
 
@@ -29,6 +29,8 @@ export async function POST(req: Request) {
     try {
       // "1", "2"… viram a opção correspondente da última mensagem enviada a este número
       const entrada = await traduzirOpcaoNumerada(db, bruta);
+      // Com palavra de ativação, mensagens fora do bot são ignoradas sem resposta e sem gravar nada
+      if (!(await deveAtender(entrada, repo, new Date()))) continue;
       const id = await registrarEntrada(db, entrada, "evolution", waId || undefined);
       if (!id) continue; // a Evolution reenviou a mesma mensagem: já foi tratada
       const saidas = await processarEntrada(await completarLocalizacao(entrada), repo, new Date());

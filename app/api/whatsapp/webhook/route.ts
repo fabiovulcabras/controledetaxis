@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
-import { processarEntrada } from "@/lib/bot/motor";
+import { deveAtender, processarEntrada } from "@/lib/bot/motor";
 import { assinaturaValida, lerStatusEntrega, lerWebhook } from "@/lib/whatsapp/meta";
 import { completarLocalizacao, despacharSaidas, registrarEntrada, vincularEntrada } from "@/lib/whatsapp/transporte";
 
@@ -32,6 +32,7 @@ export async function POST(req: Request) {
   const repo = new RepoSupabase(db);
   for (const { entrada, waId, bruto: msg } of lerWebhook(corpo)) {
     try {
+      if (!(await deveAtender(entrada, repo, new Date()))) continue; // fora da palavra de ativação: ignora
       const id = await registrarEntrada(db, entrada, "whatsapp", waId, msg);
       if (!id) continue; // já processada
       const saidas = await processarEntrada(await completarLocalizacao(entrada), repo, new Date());

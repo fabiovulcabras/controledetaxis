@@ -12,6 +12,7 @@ import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despac
 export async function processarEntrada(entrada: Entrada, repo: Repo, agora: Date): Promise<Saida[]> {
   const telefone = normalizarTelefone(entrada.telefone);
   const e: Entrada = { ...entrada, telefone, texto: (entrada.texto ?? "").trim() };
+  if (!(await deveAtender(e, repo, agora))) return [];
 
   const fornecedor = await repo.fornecedorPorTelefone(telefone);
   if (fornecedor?.ativo) return fluxoFornecedor(fornecedor, e, repo, agora);
@@ -24,6 +25,48 @@ export async function processarEntrada(entrada: Entrada, repo: Repo, agora: Date
     return [{ para: telefone, texto: "Este é o número de solicitação de táxis. Acompanhe e trate as corridas pelo painel." }];
   }
   return naoAutorizado(telefone, repo, agora);
+}
+
+// ---------------------------------------------------------------- Palavra de ativação
+const escaparRegex = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Palavras do parâmetro palavra_ativacao (separadas por vírgula), sem acento e em minúsculas. Vazio = bot sempre ativo. */
+export async function palavrasAtivacao(repo: Repo): Promise<string[]> {
+  return String((await repo.parametro("palavra_ativacao")) ?? "").split(",").map((p) => semAcento(p)).filter(Boolean);
+}
+
+/** A mensagem contém alguma das palavras, como palavra inteira ("taxi" vale em "Preciso de um táxi", não em "taxista"). */
+export function contemPalavra(texto: string | undefined, palavras: string[]): boolean {
+  const t = semAcento(texto ?? "");
+  return palavras.some((p) => new RegExp(`(^|[^a-z0-9])${escaparRegex(p)}([^a-z0-9]|$)`).test(t));
+}
+
+const ACAO_FORNECEDOR = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):/;
+const ETAPAS_FORNECEDOR = ["motorista", "valor", "aguardando"];
+
+/**
+ * Com palavra de ativação (Cadastros › Parâmetros › palavra_ativacao), o bot só responde quando:
+ *  - a mensagem contém a palavra; ou
+ *  - a pessoa já está numa conversa com o bot (dentro de conversa_expira_min); ou
+ *  - é um fornecedor respondendo a uma corrida (1/2, botões, dados do motorista, valor).
+ * O resto é ignorado em silêncio: útil quando o número do bot também é usado para conversas comuns.
+ */
+export async function deveAtender(entrada: Entrada, repo: Repo, agora: Date): Promise<boolean> {
+  const palavras = await palavrasAtivacao(repo);
+  if (!palavras.length || contemPalavra(entrada.texto, palavras)) return true;
+  const telefone = normalizarTelefone(entrada.telefone);
+  const conv = await repo.conversa(telefone);
+  const fornecedor = await repo.fornecedorPorTelefone(telefone);
+  if (fornecedor?.ativo) return ACAO_FORNECEDOR.test(entrada.botaoId ?? "") || (!!conv && ETAPAS_FORNECEDOR.includes(conv.etapa));
+  if (!conv || conv.etapa === "nao_autorizado") return false;
+  const expiraMin = await numero(repo, "conversa_expira_min", 15);
+  return agora.getTime() - new Date(conv.atualizado_em).getTime() <= expiraMin * 60_000;
+}
+
+/** Fim de uma conversa: com palavra de ativação, a conversa é encerrada (a próxima precisa da palavra); sem, volta ao menu. */
+async function encerrarConversa(repo: Repo, tel: string, agora: Date): Promise<void> {
+  if ((await palavrasAtivacao(repo)).length) await repo.apagarConversa(tel);
+  else await repo.salvarConversa(tel, "menu", {}, agora);
 }
 
 // ---------------------------------------------------------------- Número desconhecido
@@ -261,8 +304,11 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       const motivo = op ? op.slice(3) : (e.texto ?? "").length >= 3 ? e.texto! : null;
       if (!motivo) return invalida(pergunta(tel, "Escolha ou escreva o motivo do cancelamento.", OPCOES_MOTIVO_CANCEL));
       const c = await repo.corrida(dados.corrida_id);
-      await repo.salvarConversa(tel, "menu", {}, agora);
-      if (!c || !CANCELAVEIS.includes(c.status)) return [...saidas, pergunta(tel, "Essa corrida não pode mais ser cancelada.", MENU)];
+      if (!c || !CANCELAVEIS.includes(c.status)) {
+        await repo.salvarConversa(tel, "menu", {}, agora);
+        return [...saidas, pergunta(tel, "Essa corrida não pode mais ser cancelada.", MENU)];
+      }
+      await encerrarConversa(repo, tel, agora);
       const r = await cancelarCorrida(repo, c, motivo, "bot");
       const avisouFornecedor = r.saidas.some((s) => s.template?.nome === "corrida_cancelada_fornecedor");
       return [...saidas, pergunta(tel, `Corrida ${c.protocolo} cancelada.${avisouFornecedor ? " O fornecedor foi avisado." : ""}`), ...r.saidas];
@@ -289,7 +335,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
     origem_lat: d.origem_lat ?? null, origem_lng: d.origem_lng ?? null, destino_lat: d.destino_lat ?? null, destino_lng: d.destino_lng ?? null,
     qtd_passageiros: d.qtd_passageiros ?? 1, outros_passageiros: d.outros_passageiros ?? null, motivo: d.motivo,
   });
-  await repo.salvarConversa(tel, "menu", {}, agora);
+  await encerrarConversa(repo, tel, agora);
 
   const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id);
   if (!forn) {
