@@ -51,9 +51,27 @@ export async function GET() {
   }
 
   const modo = modoEnvio();
-  itens.push({ ok: true, item: `Envio de WhatsApp: ${modo === "whatsapp" ? "Cloud API da Meta" : "simulado (mensagens só gravadas no histórico; avisos pelos botões de WhatsApp)"}` });
+  itens.push({ ok: true, item: `Envio de WhatsApp: ${modo === "whatsapp" ? "Cloud API da Meta" : modo === "evolution" ? "Evolution API" : "simulado (mensagens só gravadas no histórico; avisos pelos botões de WhatsApp)"}` });
   if (process.env.WHATSAPP_MODO === "meta" && modo !== "whatsapp") {
     itens.push({ ok: false, item: "WHATSAPP_MODO=meta, mas falta WHATSAPP_TOKEN ou WHATSAPP_PHONE_NUMBER_ID" });
+  }
+  if (process.env.WHATSAPP_MODO === "evolution" && modo !== "evolution") {
+    itens.push({ ok: false, item: "WHATSAPP_MODO=evolution, mas falta EVOLUTION_URL, EVOLUTION_API_KEY ou EVOLUTION_INSTANCIA" });
+  }
+  if (modo === "evolution" && !process.env.EVOLUTION_WEBHOOK_TOKEN) {
+    itens.push({ ok: false, item: "Falta EVOLUTION_WEBHOOK_TOKEN", detalhe: "Sem ele o webhook da Evolution recusa as mensagens." });
+  }
+  if (process.env.QSTASH_TOKEN) {
+    const chaves = !!(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY);
+    const url = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);
+    itens.push({ ok: chaves && url, item: "Prazos pelo Upstash QStash", detalhe: !chaves ? "Faltam QSTASH_CURRENT_SIGNING_KEY e QSTASH_NEXT_SIGNING_KEY." : !url ? "Falta NEXT_PUBLIC_APP_URL (endereço público do app)." : undefined });
+    if (url && servico) {
+      const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { error } = await db.from("corrida_tentativas").select("id", { head: true, count: "exact" }).limit(1);
+      itens.push({ ok: !error, item: "Fila de fornecedores (migração 006)", detalhe: error ? "Rode supabase/006_fila_evolution_qstash.sql no SQL Editor." : undefined });
+    }
+  } else {
+    itens.push({ ok: true, item: "Prazos: pelo agendador /api/cron/prazos (QStash não configurado)" });
   }
 
   return Response.json({ ok: itens.every((i) => i.ok), itens }, { headers: { "Cache-Control": "no-store" } });

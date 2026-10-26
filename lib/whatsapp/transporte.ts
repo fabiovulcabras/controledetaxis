@@ -3,12 +3,35 @@ import type { Entrada, Saida } from "../bot/tipos";
 import { payloadMeta } from "./meta";
 import { textoTemplate } from "./templates";
 import { enviarEmailsPlanejamento } from "../email";
+import { agendarPrazosPendentes } from "../qstash";
+import { enviarTextoEvolution, evolutionConfigurada, textoComOpcoes, traduzirResposta } from "./evolution";
 
-export type Canal = "whatsapp" | "simulado";
+/** whatsapp = Cloud API oficial da Meta; evolution = Evolution API; simulado = só grava no histórico. */
+export type Canal = "whatsapp" | "evolution" | "simulado";
 
-/** Modo de envio: "meta" exige WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID; sem eles, as mensagens só ficam gravadas no histórico. */
+/**
+ * Modo de envio pelo WHATSAPP_MODO: "meta" (exige WHATSAPP_TOKEN e WHATSAPP_PHONE_NUMBER_ID) ou "evolution"
+ * (exige EVOLUTION_URL, EVOLUTION_API_KEY e EVOLUTION_INSTANCIA). Sem isso, as mensagens só ficam gravadas no histórico.
+ */
 export const modoEnvio = (): Canal =>
-  process.env.WHATSAPP_MODO === "meta" && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID ? "whatsapp" : "simulado";
+  process.env.WHATSAPP_MODO === "meta" && process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID ? "whatsapp"
+    : process.env.WHATSAPP_MODO === "evolution" && evolutionConfigurada() ? "evolution"
+    : "simulado";
+
+/** O app manda as mensagens sozinho (Meta ou Evolution)? Senão, quem leva a mensagem é a pessoa, pelos botões de WhatsApp. */
+export const envioAutomatico = () => modoEnvio() !== "simulado";
+
+/**
+ * Evolution não tem botões: a resposta "1" vira a 1ª opção da última mensagem com opções enviada a este número.
+ * Só vale por 24 h, e só se a última mensagem enviada tinha opções.
+ */
+export async function traduzirOpcaoNumerada(db: SupabaseClient, e: Entrada): Promise<Entrada> {
+  if (e.botaoId || !e.texto) return e;
+  const { data } = await db.from("opcoes_enviadas").select("opcoes,enviado_em").eq("telefone", e.telefone).maybeSingle();
+  if (!data?.opcoes || Date.now() - new Date(data.enviado_em).getTime() > 24 * 3600_000) return e;
+  const id = traduzirResposta(e.texto, data.opcoes);
+  return id ? { ...e, botaoId: id } : e;
+}
 
 /** Grava a mensagem recebida e devolve o id. Devolve null se ela já tinha sido recebida (a Meta reenvia em caso de demora). */
 export async function registrarEntrada(db: SupabaseClient, e: Entrada, canal: Canal, waId?: string, bruto?: unknown): Promise<string | null> {
@@ -32,9 +55,12 @@ export async function vincularEntrada(db: SupabaseClient, mensagemId: string | n
  * em qualquer modo, os alertas do planejamento também vão por e-mail quando configurado.
  */
 export async function despacharSaidas(db: SupabaseClient, saidas: Saida[]): Promise<void> {
-  if (!saidas.length) return;
-  if (modoEnvio() === "whatsapp") await enviarSaidas(db, saidas, "whatsapp");
-  await enviarEmailsPlanejamento(db, saidas);
+  if (saidas.length) {
+    if (envioAutomatico()) await enviarSaidas(db, saidas, modoEnvio());
+    await enviarEmailsPlanejamento(db, saidas);
+  }
+  // Toda corrida que acabou de ir a um fornecedor ganha a tarefa de prazo no QStash
+  await agendarPrazosPendentes(db);
 }
 
 /** A Meta só aceita texto livre até 24 h depois da última mensagem da pessoa. */
@@ -52,6 +78,7 @@ async function janelaAberta(db: SupabaseClient, telefone: string, canal: Canal, 
 export async function enviarSaidas(db: SupabaseClient, saidas: Saida[], canal: Canal = modoEnvio()): Promise<void> {
   const cache = new Map<string, boolean>();
   for (const s of saidas) {
+    if (canal === "evolution") { await enviarPelaEvolution(db, s); continue; }
     const usarTemplate = !!s.template && (s.template.sempre || !(await janelaAberta(db, s.para, canal, cache)));
     const texto = usarTemplate && s.template ? textoTemplate(s.template.nome, s.template.parametros) : s.texto;
     const registro: Record<string, unknown> = {
@@ -93,4 +120,21 @@ export async function enviarSaidas(db: SupabaseClient, saidas: Saida[], canal: C
     const { error } = await db.from("mensagens").insert(registro);
     if (error) console.error("Falha ao registrar mensagem enviada", error.message);
   }
+}
+
+/** Envio pela Evolution: texto com as opções numeradas; guarda as opções para traduzir a resposta "1", "2"… */
+async function enviarPelaEvolution(db: SupabaseClient, s: Saida): Promise<void> {
+  const texto = textoComOpcoes(s);
+  const r = await enviarTextoEvolution(s.para, texto);
+  if (!r.ok) console.error("Falha ao enviar pela Evolution", { para: s.para, erro: r.erro });
+  if (r.ok) {
+    const { error } = await db.from("opcoes_enviadas").upsert({ telefone: s.para, opcoes: s.opcoes?.length ? s.opcoes : null, enviado_em: new Date().toISOString() });
+    if (error) console.error("Falha ao guardar as opções enviadas (rodou a migração 006?)", error.message);
+  }
+  const { error } = await db.from("mensagens").insert({
+    direcao: "saida", canal: "evolution", telefone: s.para, corrida_id: s.corridaId ?? null, template: null,
+    conteudo: { texto, opcoes: s.opcoes ?? null, rotuloLista: s.rotuloLista ?? null, parametros: null },
+    wa_message_id: r.id ?? null, status_envio: r.ok ? "enviada" : "falhou", ...(r.erro ? { erro: r.erro } : {}),
+  });
+  if (error) console.error("Falha ao registrar mensagem enviada", error.message);
 }

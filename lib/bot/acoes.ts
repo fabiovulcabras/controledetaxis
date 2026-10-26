@@ -141,23 +141,33 @@ export async function cancelarCorrida(repo: Repo, c: Corrida, motivo: string, or
   return { corrida: atual, saidas };
 }
 
+/**
+ * Prazo vencido sem resposta: o fornecedor perde a vez (Sem resposta) e, com reenvio, a corrida vai ao próximo da fila.
+ * Sem próximo fornecedor (ou sem reenvio), o planejamento é alertado e o solicitante avisado.
+ * Usado pelo QStash (/api/qstash/prazo, uma corrida no instante do prazo) e pelo agendador (/api/cron/prazos, rede de segurança).
+ */
+export async function tratarPrazoVencido(repo: Repo, c: Corrida, agora: Date, opcoes: { reenviar?: boolean } = {}): Promise<Saida[]> {
+  const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
+  const atual = await repo.mudarStatus(c.id, "sem_resposta", "sistema", `Prazo de resposta vencido${forn ? ` (${forn.nome} perdeu a vez)` : ""}`);
+  const r = opcoes.reenviar ? await reenviarAutomatico(repo, atual, agora) : null;
+  if (r) {
+    return [...r.saidas, ...await avisarSolicitante(repo, r.corrida,
+      `O fornecedor ${forn?.nome ?? ""} não respondeu à corrida ${c.protocolo}. Enviamos a ${r.fornecedor.nome}.`, `sem resposta; enviada a ${r.fornecedor.nome}`)];
+  }
+  return [
+    ...await alertar(repo, atual, opcoes.reenviar ? "sem resposta no prazo e nenhum outro fornecedor disponível na fila" : "sem resposta do fornecedor no prazo"),
+    ...await avisarSolicitante(repo, atual,
+      `O fornecedor ${forn?.nome ?? ""} ainda não respondeu à corrida ${c.protocolo}. O planejamento foi avisado e vai providenciar outro fornecedor.`,
+      "fornecedor sem resposta; o planejamento foi avisado"),
+  ];
+}
+
 /** Marca como Sem resposta as corridas cujo prazo venceu. Rodado pelo agendador (/api/cron/prazos). */
 export async function verificarPrazos(repo: Repo, agora: Date, opcoes: { reenviar?: boolean } = {}): Promise<Saida[]> {
   const saidas: Saida[] = [];
   for (const c of await repo.corridasComPrazoVencido(agora)) {
-    const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
-    const atual = await repo.mudarStatus(c.id, "sem_resposta", "sistema", "Prazo de resposta do fornecedor vencido");
-    // Com envio automático (API oficial), tenta o próximo fornecedor antes de incomodar o planejamento
-    const r = opcoes.reenviar ? await reenviarAutomatico(repo, atual, agora) : null;
-    if (r) {
-      saidas.push(...r.saidas, ...await avisarSolicitante(repo, r.corrida,
-        `O fornecedor ${forn?.nome ?? ""} não respondeu à corrida ${c.protocolo}. Enviamos a ${r.fornecedor.nome}.`, `sem resposta; enviada a ${r.fornecedor.nome}`));
-      continue;
-    }
-    saidas.push(...await alertar(repo, atual, "sem resposta do fornecedor no prazo"));
-    saidas.push(...await avisarSolicitante(repo, atual,
-      `O fornecedor ${forn?.nome ?? ""} ainda não respondeu à corrida ${c.protocolo}. O planejamento foi avisado e vai providenciar outro fornecedor.`,
-      "fornecedor sem resposta; o planejamento foi avisado"));
+    try { saidas.push(...await tratarPrazoVencido(repo, c, agora, opcoes)); }
+    catch (err) { console.error("Prazo da corrida", c.protocolo, err instanceof Error ? err.message : err); } // ex.: tratada ao mesmo tempo pelo QStash
   }
   return saidas;
 }

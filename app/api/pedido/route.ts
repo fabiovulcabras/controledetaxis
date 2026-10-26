@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { escolherFornecedor, despachar, avisarPlanejamento, numero } from "@/lib/bot/acoes";
-import { despacharSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
+import { despacharSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 import { linkWhatsApp, msgNovaCorridaFornecedor, urlApp } from "@/lib/whatsapp/link";
 import { dentroDoLimite, ipDe, muitasTentativas, repoServidor, solicitantePorToken, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
@@ -80,7 +80,7 @@ async function respostaPedido(req: Request, c: Corrida, solicitante: string, avi
   const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
   if (!forn) return Response.json({ protocolo: c.protocolo, fornecedor: null, aviso: aviso ?? "Não há fornecedor ativo cadastrado. O planejamento vai providenciar." });
   return Response.json({
-    protocolo: c.protocolo, fornecedor: forn.nome, envio_automatico: modoEnvio() === "whatsapp", aviso,
+    protocolo: c.protocolo, fornecedor: forn.nome, envio_automatico: envioAutomatico(), aviso,
     whatsapp: linkWhatsApp(forn.telefone_whatsapp, msgNovaCorridaFornecedor(c, solicitante, urlApp(req))),
   });
 }
@@ -149,7 +149,7 @@ export async function POST(req: Request) {
     // Com a API oficial ligada, o envio é automático; sem ela, a pessoa envia pelo link (e-mails de aviso saem nos dois casos)
     const avisarTodas = String((await repo.parametro("avisar_planejamento_toda_corrida")) ?? "sim").trim().toLowerCase() !== "nao";
     const avisos = !avisarTodas ? [] : await avisarPlanejamento(repo, "nova_corrida_planejamento", [enviada.protocolo, sol.nome, tipo === "imediata" ? "agora" : formatarDataHora(enviada.data_hora_prevista), origem, destino, forn.nome], enviada.id);
-    await despacharSaidas(db, [...(modoEnvio() === "whatsapp" ? saidas : []), ...avisos]);
+    await despacharSaidas(db, [...(envioAutomatico() ? saidas : []), ...avisos]);
     return respostaPedido(req, enviada, sol.nome);
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);

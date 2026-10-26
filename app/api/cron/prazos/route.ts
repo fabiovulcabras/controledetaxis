@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { enviarLembretes, verificarPrazos } from "@/lib/bot/acoes";
-import { despacharSaidas, enviarSaidas, modoEnvio } from "@/lib/whatsapp/transporte";
+import { despacharSaidas, enviarSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +16,9 @@ export async function GET(req: Request) {
   const repo = new RepoSupabase(db);
   const agora = new Date();
   try {
-    // Reenvio automático no prazo vencido só com a API oficial: no modo por links ninguém levaria a mensagem ao próximo fornecedor
-    const oficial = modoEnvio() === "whatsapp";
+    // Reenvio automático no prazo vencido só com envio automático (Meta ou Evolution): no modo por links ninguém levaria a mensagem ao próximo fornecedor.
+    // Com o QStash ligado, os prazos já são tratados na hora; este agendador fica como rede de segurança.
+    const oficial = envioAutomatico();
     const prazos = await verificarPrazos(repo, agora, { reenviar: oficial });
     const lembretes = await enviarLembretes(repo, agora);
     if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);

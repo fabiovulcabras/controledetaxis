@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista } from "../lib/bot/motor";
-import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, valorEsperado, verificarValor } from "../lib/bot/acoes";
+import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
+import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
+import { assinaturaQStashValida } from "../lib/qstash";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
@@ -474,5 +476,94 @@ describe("fatura em Excel (.xlsx)", () => {
     expect(itens[0]).toEqual({ data_corrida: "2026-10-19", protocolo_informado: "TX-2026-00012", descricao: "Centro & GRU", valor: 142.5 });
     expect(itens[1].data_corrida).toBe("2026-10-20");
     expect(itens[1].protocolo_informado).toBe("TX-2026-00013");
+  });
+});
+
+describe("Evolution API e fila com prazo (QStash)", () => {
+  const evento = (data: unknown) => ({ event: "messages.upsert", instance: "taxis", data });
+
+  it("lê texto, localização e ignora mensagens próprias, grupos e figurinhas", () => {
+    const r = lerWebhookEvolution({ event: "MESSAGES_UPSERT", data: [
+      { key: { remoteJid: "5511900000101@s.whatsapp.net", fromMe: false, id: "A1" }, pushName: "RTC", message: { conversation: "1" } },
+      { key: { remoteJid: "5511900000001@s.whatsapp.net", fromMe: false, id: "A2" }, message: { extendedTextMessage: { text: "Rua Augusta, 88" } } },
+      { key: { remoteJid: "5511900000001@s.whatsapp.net", fromMe: false, id: "A3" }, message: { locationMessage: { degreesLatitude: -23.5, degreesLongitude: -46.6, address: "Av. Paulista" } } },
+      { key: { remoteJid: "5511900000001@s.whatsapp.net", fromMe: true, id: "A4" }, message: { conversation: "eco" } },
+      { key: { remoteJid: "1203630@g.us", fromMe: false, id: "A5" }, message: { conversation: "grupo" } },
+      { key: { remoteJid: "5511900000001@s.whatsapp.net", fromMe: false, id: "A6" }, message: { stickerMessage: {} } },
+      { key: { remoteJid: "98765@lid", senderPn: "5511900000002@s.whatsapp.net", fromMe: false, id: "A7" }, message: { conversation: "oi" } },
+    ] });
+    expect(r.map((m) => m.waId)).toEqual(["A1", "A2", "A3", "A7"]);
+    expect(r[0].entrada).toEqual({ telefone: "5511900000101", texto: "1" });
+    expect(r[2].entrada.localizacao).toEqual({ lat: -23.5, lng: -46.6, endereco: "Av. Paulista", nome: undefined });
+    expect(r[3].entrada.telefone).toBe("5511900000002");
+    expect(lerWebhookEvolution(evento({ key: { remoteJid: "5511900000101@s.whatsapp.net", id: "B1" }, message: { conversation: "2" } }))).toHaveLength(1);
+    expect(lerWebhookEvolution({ event: "connection.update", data: {} })).toEqual([]);
+  });
+
+  it("opções vão numeradas e a resposta numérica vira a opção", () => {
+    const opcoes = [{ id: "ACEITAR:TX-1", titulo: "Aceitar" }, { id: "RECUSAR:TX-1", titulo: "Recusar" }];
+    expect(textoComOpcoes({ texto: "Nova corrida", opcoes })).toBe("Nova corrida\n\nResponda com o número:\n*1* – Aceitar\n*2* – Recusar");
+    expect(traduzirResposta("1", opcoes)).toBe("ACEITAR:TX-1");
+    expect(traduzirResposta(" 2. ", opcoes)).toBe("RECUSAR:TX-1");
+    expect(traduzirResposta("opção 1", opcoes)).toBe("ACEITAR:TX-1");
+    expect(traduzirResposta("3", opcoes)).toBeNull();
+    expect(traduzirResposta("68,50", opcoes)).toBeNull();
+    expect(traduzirResposta("1", null)).toBeNull();
+  });
+
+  it("fornecedor digita 1 e aceita; o solicitante recebe a confirmação depois dos dados do motorista", async () => {
+    const c = conversa();
+    const s = await pedirTaxiCompleto(c);
+    const msg = ultima(s, RTC);
+    const resposta = traduzirResposta("1", msg.opcoes);
+    expect(resposta).toBe("ACEITAR:TX-2026-00001");
+    await c.enviar({ telefone: RTC, texto: "1", botaoId: resposta! });
+    expect(c.repo.corridas[0].status).toBe("aceita");
+    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    expect(ultima(s2, ANA).texto).toContain("foi aceita por");
+  });
+
+  it("prazo vencido: o fornecedor perde a vez e a corrida vai ao próximo da fila", async () => {
+    const c = conversa();
+    c.repo.parametros.reenvio_automatico = "sim";
+    await pedirTaxiCompleto(c);
+    const corrida = c.repo.corridas[0];
+    const s = await tratarPrazoVencido(c.repo, corrida, min(30), { reenviar: true });
+    const atual = c.repo.corridas[0];
+    expect(atual.status).toBe("enviada");
+    expect(atual.fornecedor_id).toBe("f2");
+    expect(atual.fornecedores_tentados).toEqual(["f1", "f2"]);
+    expect(ultima(s, "5511900000102").opcoes?.map((o) => o.titulo)).toEqual(["Aceitar", "Recusar"]);
+    expect(ultima(s, ANA).texto).toContain("não respondeu");
+    // O 1º fornecedor responde "1" tarde demais: a corrida já é de outro
+    const tarde = await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" }, 25);
+    expect(ultima(tarde, RTC).texto).toContain("outro fornecedor");
+    // O 2º também não responde: sem ninguém na fila, o planejamento é alertado
+    const fim = await tratarPrazoVencido(c.repo, c.repo.corridas[0], min(60), { reenviar: true });
+    expect(c.repo.corridas[0].status).toBe("sem_resposta");
+    expect(ultima(fim, PLAN).texto).toContain("nenhum outro fornecedor");
+  });
+
+  it("aceita só a assinatura do QStash com chave e corpo certos", async () => {
+    const b64 = (t: string | Uint8Array) => {
+      const u8 = typeof t === "string" ? new TextEncoder().encode(t) : t;
+      let x = ""; for (const b of u8) x += String.fromCharCode(b);
+      return btoa(x).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    };
+    const corpo = JSON.stringify({ tentativa_id: "4f7d5c1e-8a6b-4c5d-9e0f-1a2b3c4d5e6f" });
+    const agora = Date.UTC(2026, 9, 26, 12, 0, 0);
+    const hash = b64(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(corpo))));
+    const assinar = async (chave: string, body = hash, exp = agora / 1000 + 300) => {
+      const cab = b64(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+      const carga = b64(JSON.stringify({ iss: "Upstash", sub: "https://app/api/qstash/prazo", exp, nbf: agora / 1000 - 10, body }));
+      const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(chave), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+      return `${cab}.${carga}.${b64(new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(`${cab}.${carga}`))))}`;
+    };
+    expect(await assinaturaQStashValida(await assinar("atual"), corpo, ["atual", "proxima"], agora)).toBe(true);
+    expect(await assinaturaQStashValida(await assinar("proxima"), corpo, ["atual", "proxima"], agora)).toBe(true);
+    expect(await assinaturaQStashValida(await assinar("outra"), corpo, ["atual", "proxima"], agora)).toBe(false);
+    expect(await assinaturaQStashValida(await assinar("atual"), corpo + " ", ["atual", "proxima"], agora)).toBe(false);
+    expect(await assinaturaQStashValida(await assinar("atual", hash, agora / 1000 - 600), corpo, ["atual"], agora)).toBe(false);
+    expect(await assinaturaQStashValida(null, corpo, ["atual"], agora)).toBe(false);
   });
 });

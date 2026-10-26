@@ -400,7 +400,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     ];
   }
 
-  return [responder("Para responder às corridas, use os botões das mensagens de cada uma. Depois de aceitar, envie aqui os dados do motorista; ao final, o valor.")];
+  return [responder("Para responder a uma corrida, use as opções da mensagem dela (botão ou número: 1 aceita, 2 recusa). Depois de aceitar, envie aqui os dados do motorista; ao final, o valor.")];
 }
 
 /** "Carlos Souza, RTX4F21, 12 min" → motorista, placa, minutos. */
