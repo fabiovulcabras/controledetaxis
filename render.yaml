@@ -1,0 +1,67 @@
+# Blueprint do Render para a Evolution API (WhatsApp) usada pelo Controle de Táxis.
+# O painel continua na Vercel; aqui sobe só a Evolution. Render › New › Blueprint › escolha este repositório.
+# Banco: o próprio Supabase do app, num schema separado "evolution" (não mistura com as tabelas do app).
+services:
+  - type: web
+    name: evolution-api
+    runtime: image
+    image:
+      url: docker.io/evoapicloud/evolution-api:v2.3.7
+    plan: starter            # o plano Free "dorme" após 15 min e derruba a conexão do WhatsApp
+    region: virginia         # o Render não tem região no Brasil; Virginia é a mais próxima
+    healthCheckPath: /
+    envVars:
+      # Chave mestra da Evolution (header "apikey"). Gerada pelo Render; copie para EVOLUTION_API_KEY na Vercel.
+      - key: AUTHENTICATION_API_KEY
+        generateValue: true
+      - key: AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES
+        value: "false"
+      # Endereço público deste serviço (https://evolution-api-xxxx.onrender.com). Preencha após o 1º deploy.
+      - key: SERVER_URL
+        sync: false
+      - key: SERVER_PORT
+        value: "8080"
+      # Banco: Supabase › Connect › Session pooler (porta 5432), com ?schema=evolution no final
+      - key: DATABASE_ENABLED
+        value: "true"
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      - key: DATABASE_CONNECTION_URI
+        sync: false
+      - key: DATABASE_CONNECTION_CLIENT_NAME
+        value: evolution_taxis
+      # Guarda a sessão do WhatsApp no banco (sem isso, cada reinício pede QR code de novo)
+      - key: DATABASE_SAVE_DATA_INSTANCE
+        value: "true"
+      # O app já guarda as mensagens; não duplica histórico, contatos e conversas na Evolution
+      - key: DATABASE_SAVE_NEW_MESSAGE
+        value: "false"
+      - key: DATABASE_SAVE_MESSAGE_UPDATE
+        value: "false"
+      - key: DATABASE_SAVE_DATA_CONTACTS
+        value: "false"
+      - key: DATABASE_SAVE_DATA_CHATS
+        value: "false"
+      - key: DATABASE_SAVE_DATA_LABELS
+        value: "false"
+      - key: DATABASE_SAVE_DATA_HISTORIC
+        value: "false"
+      # Sem Redis: cache em memória basta para um número
+      - key: CACHE_REDIS_ENABLED
+        value: "false"
+      - key: CACHE_LOCAL_ENABLED
+        value: "true"
+      - key: DEL_INSTANCE
+        value: "false"
+      - key: QRCODE_LIMIT
+        value: "30"
+      - key: CONFIG_SESSION_PHONE_CLIENT
+        value: Controle de Taxis
+      - key: CONFIG_SESSION_PHONE_NAME
+        value: Chrome
+      - key: WEBHOOK_GLOBAL_ENABLED
+        value: "false"
+      - key: TELEMETRY_ENABLED
+        value: "false"
+      - key: LOG_LEVEL
+        value: ERROR,WARN,INFO
