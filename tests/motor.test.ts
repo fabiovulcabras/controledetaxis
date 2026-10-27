@@ -3,6 +3,7 @@ import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor"
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
+import { minutosInteiros, taxaAceite } from "../lib/relatorio";
 import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
@@ -790,5 +791,17 @@ describe("fornecedor mais barato", () => {
     c.repo.precos.push(P("f2", "Guarulhos", 900));
     await pedirTaxiCompleto(c);
     expect(c.repo.corridas[0].fornecedor_id).toBe("f2");
+  });
+});
+
+describe("números do relatório", () => {
+  it("resposta média em minutos inteiros: abaixo de 1 sobe para 1; acima, o mais próximo", () => {
+    expect([0.2, 0.75, 0.99, 1, 1.4, 1.5, 1.6, 2.49, 12.6].map(minutosInteiros)).toEqual([1, 1, 1, 1, 1, 2, 2, 2, 13]);
+    expect(minutosInteiros(null)).toBeNull();
+  });
+  it("taxa de aceite por viagem", () => {
+    expect(taxaAceite(3, 4)).toBe(75);
+    expect(taxaAceite(0, 0)).toBeNull();
+    expect(taxaAceite(2, 3)).toBe(67);
   });
 });

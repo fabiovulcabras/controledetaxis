@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { KpiCard } from "@/components/UI";
 import { Filtros, TopoPagina } from "@/components/Formulario";
@@ -7,18 +8,28 @@ import Barras from "@/components/Barras";
 import { useRetorno } from "@/components/Retorno";
 import { brl, dataSP, partesSP } from "@/lib/datas";
 import { baixarXlsx } from "@/lib/xlsx";
+import { minutosInteiros, taxaAceite } from "@/lib/relatorio";
 
-type Fornecedor = { nome: string; enviadas: number; aceitas: number; recusadas: number; sem_resposta: number; minutos_resposta: number | null; qtd: number; valor: number };
+type Fornecedor = {
+  id: string; nome: string; recebidas: number; aceitas: number; recusadas: number; sem_resposta: number; minutos_resposta: number | null;
+  qtd: number; valor: number; valor_tabela: number; com_tabela: number; acima_tabela: number; excesso: number;
+};
 type Grupo = { nome: string; qtd: number; valor: number; setor?: string | null; canceladas?: number; limite?: number | null };
 type Resumo = {
   por_status: Record<string, number>; total: number; valor_total: number; valor_contestado: number;
+  valor_tabela: number; valor_informado_com_tabela: number; acima_tabela: number; excesso_tabela: number;
+  viagens: { recebidas: number; aceitas: number; decididas: number; minutos_resposta: number | null };
+  por_dia: { dia: string; qtd: number; valor: number }[];
   por_centro: Grupo[]; por_solicitante: Grupo[]; por_fornecedor: Fornecedor[];
 };
 type Periodo = "mes" | "anterior" | "30dias" | "livre";
+type Opcao = { id: string; nome: string };
 
 const isoDia = (d: Date) => { const p = partesSP(d); return `${p.ano}-${String(p.mes).padStart(2, "0")}-${String(p.dia).padStart(2, "0")}`; };
 const deIso = (s: string, fim = false) => { const [a, m, d] = s.split("-").map(Number); return fim ? dataSP(a, m, d, 23, 59) : dataSP(a, m, d); };
 const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
+const txtTaxa = (aceitas: number, decididas: number) => { const t = taxaAceite(aceitas, decididas); return t == null ? "—" : `${t}%`; };
+const txtMin = (v: number | null | undefined) => { const m = minutosInteiros(v); return m == null ? "—" : `${m} min`; };
 
 function intervalo(p: Periodo, agora = new Date()): [string, string] {
   const h = partesSP(agora);
@@ -30,38 +41,63 @@ function intervalo(p: Periodo, agora = new Date()): [string, string] {
   return [isoDia(new Date(agora.getTime() - 29 * 86400_000)), isoDia(agora)];
 }
 
-/** Gasto e desempenho no período: por centro de custo, por pessoa autorizada e por fornecedor. */
+/** Gasto e desempenho no período, com filtro por fornecedor, centro de custo e pessoa autorizada. */
 export default function Relatorios() {
   const { avisar } = useRetorno();
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [[de, ate], setIntervalo] = useState<[string, string]>(() => intervalo("mes"));
+  const [fornecedor, setFornecedor] = useState("");
+  const [centro, setCentro] = useState("");
+  const [pessoa, setPessoa] = useState("");
+  const [opcoes, setOpcoes] = useState<{ fornecedores: Opcao[]; centros: Opcao[]; pessoas: Opcao[] }>({ fornecedores: [], centros: [], pessoas: [] });
   const [r, setR] = useState<Resumo | null>(null);
   const [err, setErr] = useState("");
   const [carregando, setCarregando] = useState(true);
 
+  useEffect(() => {
+    (async () => {
+      const [f, c, s] = await Promise.all([
+        supabase.from("fornecedores").select("id,nome").order("nome"),
+        supabase.from("centros_custo").select("id,codigo,descricao").order("codigo"),
+        supabase.from("solicitantes").select("id,nome").order("nome"),
+      ]);
+      setOpcoes({
+        fornecedores: (f.data ?? []) as Opcao[],
+        centros: (c.data ?? []).map((x: any) => ({ id: x.id, nome: `${x.codigo} · ${x.descricao}` })),
+        pessoas: (s.data ?? []) as Opcao[],
+      });
+    })();
+  }, []);
   useEffect(() => { if (periodo !== "livre") setIntervalo(intervalo(periodo)); }, [periodo]);
   useEffect(() => {
     (async () => {
       setCarregando(true);
-      const { data, error } = await supabase.rpc("fn_resumo_periodo", { p_de: deIso(de).toISOString(), p_ate: deIso(ate, true).toISOString() });
-      setErr(error ? `Não foi possível gerar o relatório: ${error.message}${/could not find|does not exist/i.test(error.message) ? " — rode a migração supabase/003_melhorias.sql." : ""}` : "");
+      const { data, error } = await supabase.rpc("fn_relatorio", {
+        p_de: deIso(de).toISOString(), p_ate: deIso(ate, true).toISOString(),
+        p_fornecedor: fornecedor || null, p_centro: centro || null, p_solicitante: pessoa || null,
+      });
+      setErr(error ? `Não foi possível gerar o relatório: ${error.message}${/could not find|does not exist/i.test(error.message) ? " — rode a migração supabase/009_relatorios.sql." : ""}` : "");
       setR((data as Resumo) ?? null);
       setCarregando(false);
     })();
-  }, [de, ate]);
+  }, [de, ate, fornecedor, centro, pessoa]);
 
   const forn = r?.por_fornecedor ?? [];
-  const enviadas = forn.reduce((n, f) => n + f.enviadas, 0), aceitas = forn.reduce((n, f) => n + f.aceitas, 0);
-  const canceladas = r?.por_status?.cancelada ?? 0;
+  const v = r?.viagens;
+  const filtrado = !!(fornecedor || centro || pessoa);
+  const nomeFiltro = [opcoes.fornecedores.find((x) => x.id === fornecedor)?.nome, opcoes.centros.find((x) => x.id === centro)?.nome, opcoes.pessoas.find((x) => x.id === pessoa)?.nome].filter(Boolean).join(" · ");
   const sufixo = `${de}-a-${ate}`;
 
   const exportar = () => {
     if (!r) return;
     baixarXlsx(`fornecedores-${sufixo}.xlsx`, "Fornecedores", [
-      { titulo: "Fornecedor", largura: 24 }, { titulo: "Recebidas", formato: "inteiro" }, { titulo: "Aceitas", formato: "inteiro" }, { titulo: "Recusadas", formato: "inteiro" },
-      { titulo: "Sem resposta", formato: "inteiro" }, { titulo: "Taxa de aceite", largura: 12 }, { titulo: "Resposta média (min)", formato: "decimal", largura: 18 },
-      { titulo: "Corridas concluídas", formato: "inteiro", largura: 18 }, { titulo: "Valor informado", formato: "moeda", largura: 16 },
-    ], forn.map((f) => [f.nome, f.enviadas, f.aceitas, f.recusadas, f.sem_resposta, pct(f.aceitas, f.enviadas), f.minutos_resposta, f.qtd, Number(f.valor)]));
+      { titulo: "Fornecedor", largura: 24 }, { titulo: "Viagens recebidas", formato: "inteiro", largura: 16 }, { titulo: "Aceitas", formato: "inteiro" },
+      { titulo: "Recusadas", formato: "inteiro" }, { titulo: "Sem resposta", formato: "inteiro", largura: 12 }, { titulo: "Taxa de aceite (%)", formato: "inteiro", largura: 16 },
+      { titulo: "Resposta média (min)", formato: "inteiro", largura: 18 }, { titulo: "Corridas concluídas", formato: "inteiro", largura: 18 },
+      { titulo: "Valor informado", formato: "moeda", largura: 16 }, { titulo: "Valor de tabela", formato: "moeda", largura: 16 },
+      { titulo: "Acima da tabela", formato: "inteiro", largura: 14 }, { titulo: "Excesso", formato: "moeda", largura: 14 },
+    ], forn.map((f) => [f.nome, f.recebidas, f.aceitas, f.recusadas, f.sem_resposta, taxaAceite(f.aceitas, f.aceitas + f.recusadas + f.sem_resposta),
+      minutosInteiros(f.minutos_resposta), f.qtd, Number(f.valor), f.com_tabela ? Number(f.valor_tabela) : null, f.acima_tabela, Number(f.excesso)]));
     baixarXlsx(`centros-de-custo-${sufixo}.xlsx`, "Centros de custo", [
       { titulo: "Centro de custo", largura: 30 }, { titulo: "Corridas", formato: "inteiro" }, { titulo: "Valor informado", formato: "moeda", largura: 16 },
     ], r.por_centro.map((c) => [c.nome, c.qtd, Number(c.valor)]));
@@ -74,7 +110,7 @@ export default function Relatorios() {
 
   return (
     <>
-      <TopoPagina titulo="Relatórios" subtitulo="Gasto e desempenho no período, pelo valor que os fornecedores informaram.">
+      <TopoPagina titulo="Relatórios" subtitulo={filtrado ? `Filtrado: ${nomeFiltro}` : "Gasto e desempenho dos fornecedores no período."}>
         <button type="button" className="ghost" onClick={exportar} disabled={!r || carregando}>Exportar Excel</button>
       </TopoPagina>
       <section className="card">
@@ -85,34 +121,60 @@ export default function Relatorios() {
             <label>Até<input type="date" value={ate} onChange={(e) => e.target.value && setIntervalo([de, e.target.value])} /></label>
           </>}
         </div>
+        <div className="filtros-corridas" style={{ marginBottom: 0 }}>
+          <Selecao rotulo="Fornecedor" valor={fornecedor} set={setFornecedor} lista={opcoes.fornecedores} todos="Todos os fornecedores" />
+          <Selecao rotulo="Centro de custo" valor={centro} set={setCentro} lista={opcoes.centros} todos="Todos os centros" />
+          <Selecao rotulo="Pessoa autorizada" valor={pessoa} set={setPessoa} lista={opcoes.pessoas} todos="Todas as pessoas" />
+          {filtrado && <button type="button" className="ghost" onClick={() => { setFornecedor(""); setCentro(""); setPessoa(""); }}>Limpar filtros</button>}
+        </div>
       </section>
       {err && <div className="err">{err}</div>}
 
       <div className="kpis">
         <KpiCard value={r?.total ?? 0} label="Corridas no período" />
         <KpiCard value={brl(r?.valor_total ?? 0)} label="Valor informado" />
-        <KpiCard value={pct(aceitas, enviadas)} label="Taxa de aceite dos fornecedores" />
-        <KpiCard value={canceladas} label="Canceladas" />
+        <KpiCard value={txtTaxa(v?.aceitas ?? 0, v?.decididas ?? 0)} label={`Taxa de aceite${v?.decididas ? ` (${v.aceitas} de ${v.decididas} viagens)` : ""}`} />
+        <KpiCard value={txtMin(v?.minutos_resposta)} label="Resposta média dos fornecedores" />
+        <KpiCard value={r?.acima_tabela ?? 0} label={`Acima da tabela${r?.excesso_tabela ? ` (+${brl(r.excesso_tabela)})` : ""}`} alert={(r?.acima_tabela ?? 0) > 0} />
         <KpiCard value={brl(r?.valor_contestado ?? 0)} label="Contestado nas faturas" alert={(r?.valor_contestado ?? 0) > 0} />
       </div>
 
       <section className="card">
-        <div className="repor-topo"><div><h3>Fornecedores</h3><p className="repor-resumo">Aceite e tempo de resposta contam cada vez que a corrida foi enviada ao fornecedor.</p></div></div>
+        <div className="repor-topo"><div><h3>Fornecedores</h3>
+          <p className="repor-resumo">Cada viagem enviada ao fornecedor conta uma vez. Taxa de aceite = aceitas ÷ (aceitas + recusadas + sem resposta). Resposta média do envio ao aceite ou recusa, em minutos. Clique no nome para filtrar.</p>
+        </div></div>
         <div className="tw">
           <table>
-            <thead><tr><th>Fornecedor</th><th className="num">Recebidas</th><th className="num">Aceitas</th><th className="num">Recusadas</th><th className="num">Sem resposta</th><th className="num">Aceite</th><th className="num">Resposta média</th><th className="num">Concluídas</th><th className="num">Valor</th></tr></thead>
+            <thead><tr>
+              <th>Fornecedor</th><th className="num">Viagens</th><th className="num">Aceitas</th><th className="num">Recusadas</th><th className="num">Sem resposta</th>
+              <th className="num">Aceite</th><th className="num">Resposta média</th><th className="num">Concluídas</th><th className="num">Valor informado</th>
+              <th className="num">Valor de tabela</th><th className="num">Acima da tabela</th>
+            </tr></thead>
             <tbody>
-              {forn.map((f) => (
-                <tr key={f.nome}>
-                  <td className="repor-produto">{f.nome}</td><td className="num">{f.enviadas}</td><td className="num">{f.aceitas}</td><td className="num">{f.recusadas}</td>
-                  <td className={`num${f.sem_resposta ? " negative" : ""}`}>{f.sem_resposta}</td><td className="num">{pct(f.aceitas, f.enviadas)}</td>
-                  <td className="num">{f.minutos_resposta != null ? `${String(f.minutos_resposta).replace(".", ",")} min` : "—"}</td><td className="num">{f.qtd}</td><td className="num">{brl(f.valor)}</td>
-                </tr>
-              ))}
+              {forn.map((f) => {
+                const decididas = f.aceitas + f.recusadas + f.sem_resposta;
+                return (
+                  <tr key={f.id}>
+                    <td className="repor-produto"><button type="button" className="atalho" onClick={() => setFornecedor(fornecedor === f.id ? "" : f.id)}>{f.nome}</button></td>
+                    <td className="num">{f.recebidas}</td><td className="num">{f.aceitas}</td><td className="num">{f.recusadas}</td>
+                    <td className={`num${f.sem_resposta ? " negative" : ""}`}>{f.sem_resposta}</td>
+                    <td className="num"><strong>{txtTaxa(f.aceitas, decididas)}</strong>{decididas > 0 && <small className="bloco texto-fraco">{f.aceitas} de {decididas}</small>}</td>
+                    <td className="num">{txtMin(f.minutos_resposta)}</td><td className="num">{f.qtd}</td><td className="num">{brl(f.valor)}</td>
+                    <td className="num">{f.com_tabela ? brl(f.valor_tabela) : <span className="texto-fraco">—</span>}</td>
+                    <td className={`num${f.acima_tabela ? " negative" : ""}`}>{f.acima_tabela ? <>{f.acima_tabela}<small className="bloco">+{brl(f.excesso)}</small></> : 0}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-        {!forn.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma corrida enviada no período."}</p>}
+        {!forn.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma viagem enviada no período."}</p>}
+        {(r?.acima_tabela ?? 0) > 0 && <p className="resumo-entrada" style={{ marginTop: 10 }}><Link href="/corridas">Ver as corridas</Link> — as que passaram da tabela aparecem com o valor de tabela em vermelho.</p>}
+      </section>
+
+      <section className="card">
+        <div className="repor-topo"><div><h3>Corridas por dia</h3><p className="repor-resumo">{r?.total ?? 0} corrida(s) · {brl(r?.valor_total ?? 0)} informado</p></div></div>
+        <GraficoDias dias={r?.por_dia ?? []} />
       </section>
 
       <div className="grade-2">
@@ -139,5 +201,32 @@ export default function Relatorios() {
         </section>
       </div>
     </>
+  );
+}
+
+/** Lista suspensa de filtro (fora do componente da página, para não perder o foco ao trocar). */
+function Selecao({ rotulo, valor, set, lista, todos }: { rotulo: string; valor: string; set: (v: string) => void; lista: Opcao[]; todos: string }) {
+  return (
+    <label>{rotulo}
+      <select value={valor} onChange={(e) => set(e.target.value)}>
+        <option value="">{todos}</option>
+        {lista.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function GraficoDias({ dias }: { dias: { dia: string; qtd: number; valor: number }[] }) {
+  if (!dias.length) return <p className="empty">Sem corridas no período.</p>;
+  const max = Math.max(...dias.map((d) => d.qtd), 1);
+  return (
+    <div className="grafico-mensal" role="img" aria-label="Quantidade de corridas por dia">
+      {dias.map((d) => (
+        <div key={d.dia} className="grafico-mes" title={`${d.dia.slice(8)}/${d.dia.slice(5, 7)}: ${d.qtd} corrida(s), ${brl(d.valor)}`}>
+          <div className="grafico-barras"><div className="grafico-barra saida" style={{ height: `${(d.qtd / max) * 100}%`, width: "60%" }} /></div>
+          <small>{d.dia.slice(8)}</small>
+        </div>
+      ))}
+    </div>
   );
 }
