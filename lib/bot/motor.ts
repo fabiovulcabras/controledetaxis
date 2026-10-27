@@ -359,7 +359,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
   });
   await encerrarConversa(repo, tel, agora);
 
-  const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id);
+  const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
   if (!forn) {
     return [
       { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada. Não há fornecedor ativo cadastrado; o planejamento foi avisado e vai entrar em contato.` },

@@ -2,7 +2,7 @@ import type { CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, LocalCa
 import { transicaoValida, type OrigemEvento, type StatusCorrida } from "../lib/status";
 import { variantesTelefone } from "../lib/telefone";
 import { inicioDoMesSP } from "../lib/datas";
-import { escolherPreco, type LinhaPreco } from "../lib/precos";
+import { escolherPrecoTrecho, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 
 /** Repositório em memória para testar o bot sem banco. Aplica as mesmas regras de transição do Postgres. */
 export class RepoMemoria implements Repo {
@@ -24,9 +24,16 @@ export class RepoMemoria implements Repo {
   async fornecedor(id: string) { return this.fornecedores.find((f) => f.id === id) ?? null; }
   async fornecedoresAtivos() { return this.fornecedores.filter((f) => f.ativo); }
   async unidade(id: string) { return this.unidades.find((u) => u.id === id) ?? null; }
+  private precoPara(fornecedorId: string, c: Corrida) {
+    const pontas = pontasDoPreco(c, this.unidades.map((u) => u.nome)).map((p) => ({ texto: c[p] }));
+    return escolherPrecoTrecho(this.precos.filter((l) => l.fornecedor_id === fornecedorId), pontas, c.qtd_passageiros || 1);
+  }
   async precoTabela(c: Corrida) {
-    const p = escolherPreco(this.precos.filter((l) => l.fornecedor_id === c.fornecedor_id), { texto: c.destino }, c.qtd_passageiros || 1);
+    const p = c.fornecedor_id ? this.precoPara(c.fornecedor_id, c) : null;
     return p ? { valor: p.valor, descricao: p.descricao } : null;
+  }
+  async fornecedorAtende(fornecedorId: string, c: Corrida) {
+    return !this.precos.some((l) => l.fornecedor_id === fornecedorId) || !!this.precoPara(fornecedorId, c);
   }
   async locaisCadastrados() {
     return [

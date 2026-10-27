@@ -41,13 +41,25 @@ export async function avisarSolicitante(repo: Repo, c: Corrida, texto: string, r
   return [{ para: sol.telefone_whatsapp, texto, corridaId: c.id, template: { nome: "atualizacao_corrida_solicitante", parametros: [c.protocolo, resumo] } }];
 }
 
-/** Escolhe o fornecedor: o padrão do solicitante, senão o ativo de maior prioridade. */
-export async function escolherFornecedor(repo: Repo, fornecedorPadraoId?: string | null): Promise<Fornecedor | null> {
+/** Fornecedores ativos que atendem o trecho (com tabela de preços, só onde há preço), pela prioridade. */
+async function quemAtende(repo: Repo, c: Corrida | null, excluir: Set<string> = new Set()): Promise<Fornecedor[]> {
+  const ativos = (await repo.fornecedoresAtivos()).filter((f) => !excluir.has(f.id)).sort((a, b) => a.prioridade - b.prioridade);
+  if (!c) return ativos;
+  const atende: Fornecedor[] = [];
+  for (const f of ativos) if (await repo.fornecedorAtende(f.id, c).catch(() => true)) atende.push(f);
+  return atende;
+}
+
+/**
+ * Escolhe o fornecedor: o padrão do solicitante, senão o ativo de maior prioridade. Com a corrida informada,
+ * pula quem não atende o trecho (fornecedor com tabela de preços sem valor para aquele local).
+ */
+export async function escolherFornecedor(repo: Repo, fornecedorPadraoId?: string | null, c: Corrida | null = null): Promise<Fornecedor | null> {
   if (fornecedorPadraoId) {
     const f = await repo.fornecedor(fornecedorPadraoId);
-    if (f?.ativo) return f;
+    if (f?.ativo && (!c || await repo.fornecedorAtende(f.id, c).catch(() => true))) return f;
   }
-  return (await repo.fornecedoresAtivos()).sort((a, b) => a.prioridade - b.prioridade)[0] ?? null;
+  return (await quemAtende(repo, c))[0] ?? null;
 }
 
 /** Envia a corrida ao fornecedor (status Enviada, prazo de resposta) e monta o modelo com os botões Aceitar/Recusar. */
@@ -76,10 +88,10 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
   };
 }
 
-/** Próximo fornecedor ativo, pela prioridade, que ainda não recebeu esta corrida. */
+/** Próximo fornecedor ativo, pela prioridade, que ainda não recebeu esta corrida e atende o trecho. */
 export async function proximoFornecedor(repo: Repo, c: Corrida): Promise<Fornecedor | null> {
   const tentados = new Set([...(c.fornecedores_tentados ?? []), ...(c.fornecedor_id ? [c.fornecedor_id] : [])]);
-  return (await repo.fornecedoresAtivos()).filter((f) => !tentados.has(f.id)).sort((a, b) => a.prioridade - b.prioridade)[0] ?? null;
+  return (await quemAtende(repo, c, tentados))[0] ?? null;
 }
 
 /**

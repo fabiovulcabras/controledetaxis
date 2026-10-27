@@ -79,6 +79,8 @@ export interface Repo {
    * Null quando o fornecedor não tem tabela ou o local não está nela.
    */
   precoTabela(c: Corrida): Promise<{ valor: number; descricao: string } | null>;
+  /** O fornecedor atende o trecho? Sem tabela de preços, atende tudo; com tabela, só os trechos que estão nela. */
+  fornecedorAtende(fornecedorId: string, c: Corrida): Promise<boolean>;
   /** Unidades ativas com endereço e locais frequentes ativos, por nome. */
   locaisCadastrados(): Promise<LocalCadastrado[]>;
   centroCusto(id: string): Promise<CentroCusto | null>;

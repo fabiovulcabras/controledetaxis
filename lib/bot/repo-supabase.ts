@@ -3,7 +3,7 @@ import type { LocalCadastrado, CamposCorrida, CentroCusto, Conversa, Corrida, Fo
 import type { OrigemEvento, StatusCorrida } from "../status";
 import { variantesTelefone } from "../telefone";
 import { inicioDoMesSP } from "../datas";
-import { escolherPreco, pontoDoPreco, type LinhaPreco, type Onde } from "../precos";
+import { escolherPrecoTrecho, pontasDoPreco, type LinhaPreco, type Onde } from "../precos";
 import { localidadePorCoordenadas, localidadePorTexto } from "../endereco";
 
 const falhar = (contexto: string, error: { message: string } | null) => {
@@ -39,18 +39,9 @@ export class RepoSupabase implements Repo {
     if (c.preco_calculado_em && c.preco_fornecedor_id === c.fornecedor_id) {
       return c.valor_tabela != null ? { valor: Number(c.valor_tabela), descricao: c.preco_descricao ?? "" } : null;
     }
-    const { data: linhas, error } = await this.db.from("precos_tabela").select("*").eq("fornecedor_id", c.fornecedor_id).eq("ativo", true);
-    if (error || !linhas?.length) return null; // sem a migração 008 ou sem tabela para este fornecedor
-    const unidades = (await this.locaisCadastrados()).filter((l) => l.tipo === "unidade").map((l) => l.nome);
-    const ponta = pontoDoPreco(c, unidades);
-    const texto = ponta === "origem" ? c.origem : c.destino;
-    const lat = ponta === "origem" ? c.origem_lat : c.destino_lat;
-    const lng = ponta === "origem" ? c.origem_lng : c.destino_lng;
-    const mapa = lat != null && lng != null
-      ? await localidadePorCoordenadas(Number(lat), Number(lng), process.env.NEXT_PUBLIC_APP_URL || "app interno")
-      : await localidadePorTexto(texto);
-    const onde: Onde = { cidade: mapa?.cidade ?? null, bairros: mapa?.bairros ?? [], texto: [texto, mapa?.texto].filter(Boolean).join(" ") };
-    const p = escolherPreco(linhas as LinhaPreco[], onde, c.qtd_passageiros || 1);
+    const linhas = await this.linhasPreco(c.fornecedor_id);
+    if (!linhas.length) return null; // sem a migração 008 ou sem tabela para este fornecedor
+    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
     const campos = {
       valor_tabela: p?.valor ?? null, preco_id: p?.linha.id ?? null, preco_descricao: p?.descricao ?? null,
       preco_fornecedor_id: c.fornecedor_id, preco_calculado_em: new Date().toISOString(),
@@ -59,6 +50,40 @@ export class RepoSupabase implements Repo {
     if (e2) console.error("Gravar valor de tabela", e2.message);
     Object.assign(c, campos);
     return p ? { valor: p.valor, descricao: p.descricao } : null;
+  }
+  async fornecedorAtende(fornecedorId: string, c: Corrida): Promise<boolean> {
+    const linhas = await this.linhasPreco(fornecedorId);
+    if (!linhas.length) return true;
+    return !!escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
+  }
+  private linhasPreco(fornecedorId: string): Promise<LinhaPreco[]> {
+    const chave = `precos:${fornecedorId}`;
+    if (!this.cache.has(chave)) {
+      this.cache.set(chave, Promise.resolve(this.db.from("precos_tabela").select("*").eq("fornecedor_id", fornecedorId).eq("ativo", true))
+        .then(({ data, error }) => (error ? [] : (data ?? []) as LinhaPreco[])));
+    }
+    return this.cache.get(chave)!;
+  }
+  /** Cidade e bairro das pontas que contam para o preço (pelo mapa), lidos uma vez por corrida. */
+  private pontasDaCorrida(c: Corrida): Promise<Onde[]> {
+    const chave = `pontas:${c.id}`;
+    if (!this.cache.has(chave)) {
+      this.cache.set(chave, (async () => {
+        const unidades = (await this.locaisCadastrados()).filter((l) => l.tipo === "unidade").map((l) => l.nome);
+        const ondes: Onde[] = [];
+        for (const ponta of pontasDoPreco(c, unidades)) { // uma de cada vez: o Nominatim pede no máximo 1 consulta por segundo
+          const texto = ponta === "origem" ? c.origem : c.destino;
+          const lat = ponta === "origem" ? c.origem_lat : c.destino_lat;
+          const lng = ponta === "origem" ? c.origem_lng : c.destino_lng;
+          const mapa = lat != null && lng != null
+            ? await localidadePorCoordenadas(Number(lat), Number(lng), process.env.NEXT_PUBLIC_APP_URL || "app interno")
+            : await localidadePorTexto(texto);
+          ondes.push({ cidade: mapa?.cidade ?? null, bairros: mapa?.bairros ?? [], texto: [texto, mapa?.texto].filter(Boolean).join(" ") });
+        }
+        return ondes;
+      })());
+    }
+    return this.cache.get(chave)!;
   }
   async locaisCadastrados(): Promise<LocalCadastrado[]> {
     const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);

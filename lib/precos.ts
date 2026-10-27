@@ -63,12 +63,26 @@ export function escolherPreco(linhas: LinhaPreco[], onde: Onde, passageiros: num
 }
 
 /**
- * Qual ponta da corrida define o preço: o destino, a não ser que o destino seja uma unidade da empresa
- * (volta para o CD); nesse caso, a origem.
+ * Pontas da corrida que contam para o preço. Ida e volta custam o mesmo, então vale o local que não é unidade
+ * da empresa: CD → Bragança e Bragança → CD usam Bragança. Se nenhuma (ou as duas) for unidade, contam as duas.
  */
-export function pontoDoPreco(c: { origem: string; destino: string }, nomesUnidades: string[]): "origem" | "destino" {
-  const destino = normalizar(c.destino);
-  return nomesUnidades.some((n) => normalizar(n) && destino.startsWith(normalizar(n))) ? "origem" : "destino";
+export function pontasDoPreco(c: { origem: string; destino: string }, nomesUnidades: string[]): ("origem" | "destino")[] {
+  const ehUnidade = (t: string) => nomesUnidades.some((n) => normalizar(n) && normalizar(t).startsWith(normalizar(n)));
+  const pontas = (["origem", "destino"] as const).filter((p) => !ehUnidade(c[p]));
+  return pontas.length ? [...pontas] : ["origem", "destino"];
+}
+
+/**
+ * Preço do trecho: o maior entre as pontas que contam. Assim Bragança → casa em Extrema vale Bragança (ida e volta iguais),
+ * e o fornecedor que não tem preço para nenhuma das pontas não atende o trecho (null).
+ */
+export function escolherPrecoTrecho(linhas: LinhaPreco[], pontas: Onde[], passageiros: number): PrecoEscolhido | null {
+  let melhor: PrecoEscolhido | null = null;
+  for (const onde of pontas) {
+    const p = escolherPreco(linhas, onde, passageiros);
+    if (p && (!melhor || p.valor > melhor.valor)) melhor = p;
+  }
+  return melhor;
 }
 
 // ------------------------------------------------------------------ Importação da planilha

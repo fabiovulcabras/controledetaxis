@@ -3,7 +3,7 @@ import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor"
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
-import { escolherPreco, lerTabelaPrecos, pontoDoPreco, type LinhaPreco } from "../lib/precos";
+import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
@@ -704,9 +704,36 @@ describe("tabela de preços", () => {
     expect(escolherPreco(tabela, { texto: "Atibaia - SP" }, 6)).toBeNull();
   });
 
-  it("volta para a unidade usa a origem para o preço", () => {
-    expect(pontoDoPreco({ origem: "Rua A, Toledo", destino: "CD Extrema – Rod. Fernão Dias" }, ["CD Extrema"])).toBe("origem");
-    expect(pontoDoPreco({ origem: "CD Extrema – Rod. Fernão Dias", destino: "Rua A, Toledo" }, ["CD Extrema"])).toBe("destino");
+  it("ida e volta custam o mesmo: vale o local que não é unidade, ou o maior entre as pontas", () => {
+    expect(pontasDoPreco({ origem: "Rua A, Toledo", destino: "CD Extrema – Rod. Fernão Dias" }, ["CD Extrema"])).toEqual(["origem"]);
+    expect(pontasDoPreco({ origem: "CD Extrema – Rod. Fernão Dias", destino: "Rua A, Toledo" }, ["CD Extrema"])).toEqual(["destino"]);
+    expect(pontasDoPreco({ origem: "Rua A, Toledo", destino: "Rua B, Extrema" }, ["CD Extrema"])).toEqual(["origem", "destino"]);
+    // Toledo → casa no centro de Extrema: vale Toledo (158), não Extrema Central (82)
+    expect(escolherPrecoTrecho(tabela, [{ texto: "Rua A, Toledo - MG" }, { cidade: "Extrema", texto: "Rua B" }], 1)?.valor).toBe(158);
+    expect(escolherPrecoTrecho(tabela, [{ cidade: "Extrema", texto: "Rua B" }, { texto: "Rua A, Toledo - MG" }], 1)?.valor).toBe(158);
+  });
+
+  it("fornecedor que não atende dentro de Extrema fica fora da fila nesses trechos", async () => {
+    const c = conversa();
+    // f1 (prioridade 1) só tem preço em Guarulhos; f2 tem Extrema
+    c.repo.precos.push(L("Guarulhos", "Guarulhos", null, "qualquer", "passeio", 410));
+    c.repo.precos.push({ ...L("Extrema (Central) - MG", "Extrema", null, "qualquer", "passeio", 50), id: "x2", fornecedor_id: "f2" });
+    c.repo.solicitantes[0].fornecedor_padrao_id = null;
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, texto: "Rua das Flores, 10, Extrema - MG" });
+    await c.enviar({ telefone: ANA, texto: "Av. Brasil, 200, Extrema - MG" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    await c.enviar({ telefone: ANA, botaoId: "cc:cc1" });
+    await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f2");
+    // Recusa de f2: não há outro fornecedor que atenda Extrema, então vai ao planejamento
+    c.repo.parametros.reenvio_automatico = "sim";
+    const s = await c.enviar({ telefone: "5511900000102", botaoId: "RECUSAR:TX-2026-00001" });
+    expect(c.repo.corridas[0].status).toBe("recusada");
+    expect(para(s, PLAN).length).toBeGreaterThan(0);
   });
 
   it("valor acima da tabela gera alerta ao planejamento e aviso ao fornecedor", async () => {

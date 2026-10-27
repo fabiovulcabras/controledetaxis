@@ -142,7 +142,7 @@ export async function POST(req: Request) {
       ...pontos, ...(distancia != null ? { distancia_km: distancia } : {}), ...(chave ? { chave_envio: chave } : {}),
     });
 
-    const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id);
+    const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);
 
