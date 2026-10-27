@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { LocalCadastrado, CamposCorrida, CentroCusto, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
+import type { LocalCadastrado, CamposCorrida, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
 import type { OrigemEvento, StatusCorrida } from "../status";
 import { variantesTelefone } from "../telefone";
 import { inicioDoMesSP } from "../datas";
@@ -99,19 +99,12 @@ export class RepoSupabase implements Repo {
       ...(l.error ? [] : l.data ?? []).map((x: any) => ({ id: x.id, nome: x.nome, endereco: String(x.endereco).trim(), lat: num(x.lat), lng: num(x.lng), tipo: "local" as const })),
     ];
   }
-  async centroCusto(id: string) { return this.emCache<CentroCusto>("centros_custo", id); }
   async fornecedoresAtivos() {
     const { data, error } = await this.db.from("fornecedores").select("*").eq("ativo", true).order("prioridade");
     falhar("Listar fornecedores", error);
     return (data ?? []) as Fornecedor[];
   }
-  async centrosCusto(unidadeId?: string | null) {
-    let q = this.db.from("centros_custo").select("*").eq("ativo", true).order("codigo");
-    if (unidadeId) q = q.or(`unidade_id.eq.${unidadeId},unidade_id.is.null`);
-    const { data, error } = await q;
-    falhar("Listar centros de custo", error);
-    return (data ?? []) as CentroCusto[];
-  }
+
   async parametro(chave: string) {
     let params = this.cacheParametros;
     if (!params) {

@@ -6,7 +6,7 @@ Toda corrida nasce com um protocolo (`TX-2026-00123`), e só corrida com protoco
 ## Como funciona
 
 1. A pessoa autorizada manda mensagem para o número de WhatsApp da empresa.
-2. O bot pergunta quando, origem, destino, passageiros, centro de custo e motivo, mostra o resumo e grava a corrida com protocolo.
+2. O bot pergunta quando, origem, destino, passageiros e motivo, mostra o resumo e grava a corrida com protocolo.
 3. O fornecedor recebe a corrida com os botões **Aceitar** e **Recusar**; o planejamento recebe um aviso.
 4. Ao aceitar, o fornecedor informa motorista, placa e previsão; depois o embarque e o valor final.
 5. Sem resposta no prazo, a corrida vira **Sem resposta** e o planejamento é avisado; ele pode reenviar a outro fornecedor pelo painel.
@@ -19,20 +19,20 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 
 | Tela | Perfil | O que faz |
 | --- | --- | --- |
-| Visão geral | todos | Números do dia, exceções, corridas aguardando fornecedor (com prazo), gráfico diário e valor por fornecedor e centro de custo. Atualiza sozinha (tempo real) |
+| Visão geral | todos | Números do dia, exceções, corridas aguardando fornecedor (com prazo), gráfico diário e valor por fornecedor e por pessoa autorizada. Atualiza sozinha (tempo real) |
 | Corridas | todos | Lista com busca e filtros no servidor, paginação, exportação para Excel e cartões no celular; detalhe com dados, linha do tempo, mensagens e ações (validar, contestar, cancelar, reenviar, ajustar valor) |
-| Relatórios | todos | Por período, com filtro por fornecedor, centro de custo e pessoa: taxa de aceite por viagem e resposta média (min) por fornecedor, valor informado x tabela, gasto por pessoa (com % do limite mensal) e por centro de custo, exportação para Excel |
+| Relatórios | todos | Por período, com filtro por fornecedor e pessoa: taxa de aceite por viagem e resposta média (min) por fornecedor, valor informado x tabela, gasto por pessoa (com % do limite mensal) e por fornecedor, exportação para Excel |
 | Conciliação | planejamento | Importa a fatura (CSV ou Excel .xlsx), aceita todos os conciliados de uma vez, cruza com os protocolos, aceita/contesta itens, aponta corridas não faturadas, exporta a contestação |
 | Pedido por link (`/pedir/…`) | pessoa autorizada, sem login | Pedido de táxi pelo celular, com unidades e locais cadastrados para escolher como origem ou destino, acompanhamento e cancelamento |
 | Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
 | Portais dos fornecedores | planejamento | Link fixo do portal de cada fornecedor: enviar pelo WhatsApp, copiar, abrir ou gerar novo |
 | Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
-| Cadastros | admin | Pessoas autorizadas, fornecedores, centros de custo, unidades, locais frequentes, parâmetros e usuários do painel |
+| Cadastros | admin | Pessoas autorizadas, fornecedores, tabela de preços, unidades, locais frequentes, parâmetros e usuários do painel |
 
 ## Instalação
 
 1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`, `supabase/009_relatorios.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
-2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios.
+2. Opcional: rode `supabase/exemplo.sql` para ter unidade, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
 5. Crie o primeiro usuário em Authentication › Users no Supabase (ou pela tela de login, se o cadastro estiver aberto). O primeiro usuário vira **administrador**; os demais entram como **consulta** e o admin muda o perfil em Cadastros › Usuários (ou convida por lá).
@@ -145,7 +145,7 @@ tests/                   testes do motor do bot
 - Conversa parada por mais de `conversa_expira_min` minutos é descartada. Três respostas não entendidas voltam ao menu.
 - Fornecedor: o mais barato para o trecho pela Tabela de preços. Recusa ou falta de resposta passa ao próximo mais barato. Quem tem tabela sem preço para o trecho não recebe; quem não tem tabela entra no fim da fila. O fornecedor padrão da pessoa só desempata preços iguais.
 - Prazo de resposta: o do fornecedor para corridas imediatas; `prazo_agendada_min` para agendadas. O fornecedor ainda pode aceitar depois do prazo, e o planejamento é avisado.
-- Valor acima do teto do centro de custo gera alerta. Também geram alerta: valor acima da tarifa de referência do fornecedor (`bandeirada` + `valor_km` × distância, mais `tolerancia_trajeto_pct`) e gasto da pessoa acima do `limite_mensal` dela.
+- Geram alerta ao planejamento: valor acima da tarifa de referência do fornecedor (`bandeirada` + `valor_km` × distância, mais `tolerancia_trajeto_pct`) e gasto da pessoa acima do `limite_mensal` dela.
 - Só o fornecedor responde: o link `/f/…` da corrida passa pelo WhatsApp do solicitante, então sozinho ele só mostra a corrida. Aceitar, recusar, informar valor ou marcar como não realizada exige o aparelho identificado, abrindo o portal do fornecedor ou digitando o código de acesso de 6 dígitos (tela Portais dos fornecedores). Gerar novo link do portal desliga os aparelhos já identificados.
 - **Tabela de preços** (Cadastros › Tabela de preços): valores combinados com cada fornecedor, por cidade fora de Extrema e por bairro dentro (linha sem bairro = resto da cidade). O sistema localiza o destino (ou a origem, quando o destino é uma unidade), escolhe veículo e tipo de destino pelos passageiros (1 = Passeio, destino único; 2 a 4 = Passeio, diversos; 5 e 6 = Spin; 7+ = Van) e mostra o valor de tabela ao fornecedor. Valor informado acima da tabela gera alerta e aparece em vermelho na lista de corridas. Importa e exporta em Excel.
 - Recusa ou falta de resposta reenvia sozinha ao próximo fornecedor ativo ainda não tentado (parâmetro `reenvio_automatico`; `nao` desliga).

@@ -23,15 +23,14 @@ type Corrida = {
   valor_informado: number | null; valor_faturado: number | null; prazo_resposta_em: string | null;
   motivo_recusa: string | null; motivo_cancelamento: string | null; distancia_km?: number | null;
   valor_tabela?: number | null; preco_descricao?: string | null;
-  solicitante_id: string; fornecedor_id: string | null; centro_custo_id: string | null;
+  solicitante_id: string; fornecedor_id: string | null;
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
   fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
   token_fornecedor?: string;
-  centros_custo?: { codigo: string; descricao: string } | null;
 };
 /** Linha da view corridas_lista (nomes já juntados). */
-type Linha = Omit<Corrida, "solicitantes" | "fornecedores" | "centros_custo"> & {
-  solicitante_nome: string; solicitante_setor: string | null; fornecedor_nome: string | null; centro_codigo: string | null; centro_descricao: string | null;
+type Linha = Omit<Corrida, "solicitantes" | "fornecedores"> & {
+  solicitante_nome: string; solicitante_setor: string | null; fornecedor_nome: string | null;
 };
 type Grupo = "todas" | "abertas" | "excecoes" | "validar" | "validadas" | "canceladas";
 const GRUPOS: Record<Grupo, StatusCorrida[] | null> = {
@@ -118,20 +117,20 @@ export default function Corridas() {
 
   const exportar = async () => {
     setExportando(true);
-    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,centro_codigo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
+    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
     setExportando(false);
     if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
     const linhas = (data ?? []) as any[];
     baixarXlsx(`corridas-${de}-a-${ate}.xlsx`, "Corridas", [
       { titulo: "Protocolo", largura: 16 }, { titulo: "Data/hora", largura: 14 }, { titulo: "Tipo", largura: 10 }, { titulo: "Solicitante", largura: 22 },
       { titulo: "Setor", largura: 14 }, { titulo: "Origem", largura: 36 }, { titulo: "Destino", largura: 36 }, { titulo: "Passageiros", formato: "inteiro", largura: 11 },
-      { titulo: "Motivo", largura: 20 }, { titulo: "Centro de custo", largura: 14 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
+      { titulo: "Motivo", largura: 20 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
       { titulo: "Motorista", largura: 18 }, { titulo: "Placa", largura: 10 }, { titulo: "Distância (km)", formato: "decimal", largura: 13 },
       { titulo: "Valor tabela", formato: "moeda", largura: 13 }, { titulo: "Item da tabela", largura: 34 },
       { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
     ], linhas.map((c) => [
       c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
-      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.centro_codigo, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
+      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km),
       c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao, c.valor_informado == null ? null : Number(c.valor_informado),
       c.valor_faturado == null ? null : Number(c.valor_faturado),
@@ -235,7 +234,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
 
   const carregar = async () => {
     const [r, ev, ms] = await Promise.all([
-      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome,telefone_whatsapp,bandeirada,valor_km), centros_custo(codigo,descricao)").eq("id", id).maybeSingle(),
+      supabase.from("corridas").select("*, solicitantes(nome,setor,telefone_whatsapp), fornecedores(nome,telefone_whatsapp,bandeirada,valor_km)").eq("id", id).maybeSingle(),
       supabase.from("corrida_eventos").select("*, profiles(nome)").eq("corrida_id", id).order("criado_em", { ascending: false }),
       supabase.from("mensagens").select("*").eq("corrida_id", id).order("criado_em"),
     ]);
@@ -348,7 +347,6 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Origem</dt><dd>{c.origem}</dd>
             <dt>Destino</dt><dd>{c.destino}</dd>
             <dt>Passageiros</dt><dd>{c.qtd_passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
-            <dt>Centro de custo</dt><dd>{c.centros_custo ? `${c.centros_custo.codigo} · ${c.centros_custo.descricao}` : "—"}</dd>
             <dt>Motivo</dt><dd>{c.motivo}</dd>
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado</span>}</dd>

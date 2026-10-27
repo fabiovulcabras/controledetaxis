@@ -39,9 +39,8 @@ export async function GET(req: Request) {
     const repo = repoServidor();
     const db = supabaseAdmin();
     const base = urlApp(req);
-    const [locais, centros, maxDias, recentes] = await Promise.all([
+    const [locais, maxDias, recentes] = await Promise.all([
       locaisDoPedido(db, sol.unidade_id),
-      repo.centrosCusto(sol.unidade_id),
       numero(repo, "antecedencia_maxima_dias", 30),
       db.from("corridas").select("*, fornecedores(nome,telefone_whatsapp)").eq("solicitante_id", sol.id).order("criado_em", { ascending: false }).limit(20),
     ]);
@@ -49,8 +48,6 @@ export async function GET(req: Request) {
     return Response.json({
       nome: sol.nome,
       locais,
-      centros: centros.map((c) => ({ id: c.id, rotulo: `${c.codigo} · ${c.descricao}` })),
-      centro_padrao: sol.centro_custo_padrao_id ?? null,
       motivos: MOTIVOS,
       max_dias: maxDias,
       frequentes: frequentes(lista),
@@ -62,7 +59,7 @@ export async function GET(req: Request) {
         // Para o botão "Repetir": refaz o formulário com os mesmos dados
         repetir: {
           origem: c.origem, origem_lat: num(c.origem_lat), origem_lng: num(c.origem_lng), destino: c.destino, destino_lat: num(c.destino_lat), destino_lng: num(c.destino_lng),
-          qtd_passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? "", centro_custo_id: c.centro_custo_id, motivo: c.motivo,
+          qtd_passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? "", motivo: c.motivo,
         },
         // Enquanto o fornecedor não respondeu, a pessoa pode reenviar a mensagem pelo WhatsApp
         whatsapp_fornecedor: ["enviada", "sem_resposta"].includes(c.status) && c.fornecedores?.telefone_whatsapp
@@ -117,8 +114,6 @@ export async function POST(req: Request) {
     if (destino.length < 3) return erroJson("Informe o destino.");
     if (motivo.length < 3) return erroJson("Informe o motivo.");
     if (!Number.isInteger(qtd) || qtd < 1 || qtd > 20) return erroJson("Informe o número de passageiros (1 a 20).");
-    const cc = corpo.centro_custo_id ? await repo.centroCusto(String(corpo.centro_custo_id)) : null;
-    if (!cc?.ativo) return erroJson("Escolha o centro de custo.");
 
     // Mesmo trajeto pedido há menos de 2 minutos: devolve o pedido anterior em vez de duplicar
     const doisMin = new Date(agora.getTime() - 2 * 60_000).toISOString();
@@ -137,7 +132,7 @@ export async function POST(req: Request) {
       ? await distanciaTrajeto({ lat: pontos.origem_lat, lng: pontos.origem_lng }, { lat: pontos.destino_lat, lng: pontos.destino_lng }) : null;
 
     const corrida = await repo.criarCorrida({
-      solicitante_id: sol.id, centro_custo_id: cc.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
+      solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim().slice(0, 200) || null : null, motivo,
       ...pontos, ...(distancia != null ? { distancia_km: distancia } : {}), ...(chave ? { chave_envio: chave } : {}),
     });

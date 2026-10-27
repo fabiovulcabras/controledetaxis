@@ -7,7 +7,7 @@ import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import CampoEndereco, { type LocalCadastrado } from "@/components/CampoEndereco";
 
 type Dados = {
-  nome: string; locais?: LocalCadastrado[]; centros: { id: string; rotulo: string }[]; centro_padrao: string | null;
+  nome: string; locais?: LocalCadastrado[];
   motivos: string[]; max_dias: number;
   frequentes?: { endereco: string; lat: number | null; lng: number | null }[];
   corridas: {
@@ -18,7 +18,7 @@ type Dados = {
 };
 type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
 
-const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", centro_custo_id: "", motivo: "", motivo_outro: "" };
+const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
 const novaChave = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
@@ -42,7 +42,6 @@ export default function Pedir() {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { setErroLink(j.erro ?? "Não foi possível abrir o link."); return; }
     setDados(j);
-    setForm((f) => (f.centro_custo_id ? f : { ...f, centro_custo_id: j.centro_padrao ?? j.centros[0]?.id ?? "" }));
   };
   useEffect(() => { void carregar(); }, [token]);
   useIntervaloVisivel(() => void carregar(), 20_000);
@@ -84,7 +83,7 @@ export default function Pedir() {
       body: JSON.stringify({
         token, chave_envio: chaveEnvio, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
         origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
-        centro_custo_id: form.centro_custo_id, motivo,
+        motivo,
       }),
     });
     const j = await r.json().catch(() => ({}));
@@ -92,7 +91,7 @@ export default function Pedir() {
     if (!r.ok) { setErr(j.erro ?? "Não foi possível registrar o pedido."); return; }
     setResultado(j);
     setChaveEnvio(novaChave());
-    setForm({ ...vazio, centro_custo_id: form.centro_custo_id });
+    setForm(vazio);
     window.scrollTo(0, 0);
     void carregar();
   };
@@ -169,11 +168,6 @@ export default function Pedir() {
               </select>
             </Campo>
             {Number(form.qtd_passageiros) > 1 && <Campo rotulo="Nome dos outros passageiros"><input value={form.outros_passageiros} onChange={campo("outros_passageiros")} /></Campo>}
-            <Campo rotulo="Centro de custo" obrigatorio>
-              <select value={form.centro_custo_id} onChange={campo("centro_custo_id")}>
-                {dados.centros.map((c) => <option key={c.id} value={c.id}>{c.rotulo}{c.id === dados.centro_padrao ? " (padrão)" : ""}</option>)}
-              </select>
-            </Campo>
             <Campo rotulo="Motivo" obrigatorio>
               <select value={form.motivo} onChange={campo("motivo")}>
                 <option value="">Escolha</option>
@@ -199,7 +193,7 @@ export default function Pedir() {
               {c.repetir && !resultado && (
                 <div className="row"><button type="button" className="ghost" onClick={() => {
                   const r = c.repetir!;
-                  setForm({ ...vazio, ...r, qtd_passageiros: String(r.qtd_passageiros ?? 1), centro_custo_id: r.centro_custo_id ?? form.centro_custo_id,
+                  setForm({ ...vazio, ...r, qtd_passageiros: String(r.qtd_passageiros ?? 1),
                     motivo: dados.motivos.includes(r.motivo) ? r.motivo : "outro", motivo_outro: dados.motivos.includes(r.motivo) ? "" : r.motivo });
                   setChaveEnvio(novaChave());
                   window.scrollTo({ top: 0, behavior: "smooth" });

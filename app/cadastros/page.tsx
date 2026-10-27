@@ -12,9 +12,9 @@ import { baixarXlsx } from "@/lib/xlsx";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "precos" | "centros" | "unidades" | "locais" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
-  ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"], ["centros", "Centros de custo"],
+  ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"],
   ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
@@ -42,7 +42,6 @@ export default function Cadastros() {
           { key: "matricula", label: "Matrícula", esconderNaTabela: true },
           { key: "email", label: "E-mail", type: "email", esconderNaTabela: true },
           { key: "unidade_id", label: "Unidade", type: "select", opcoes: { tabela: "unidades", rotulo: (r) => r.nome } },
-          { key: "centro_custo_padrao_id", label: "Centro de custo padrão", type: "select", opcoes: { tabela: "centros_custo", rotulo: (r) => `${r.codigo} · ${r.descricao}` } },
           { key: "fornecedor_padrao_id", label: "Fornecedor padrão", type: "select", opcoes: { tabela: "fornecedores", rotulo: (r) => r.nome }, ajuda: "A corrida vai sempre ao fornecedor mais barato para o trecho. O padrão só desempata preços iguais ou vale onde ninguém tem preço na tabela." },
           { key: "limite_mensal", label: "Limite mensal (R$)", type: "number", esconderNaTabela: true, ajuda: "Gasto acima disso no mês gera alerta ao planejamento. Vazio: sem limite." },
         ]} />}
@@ -60,14 +59,6 @@ export default function Cadastros() {
         ]} />}
 
       {aba === "precos" && <TabelaPrecos />}
-
-      {aba === "centros" && <Crud key="cc" table="centros_custo" title="Centros de custo" nomeItem="centro de custo" ordem="codigo"
-        fields={[
-          { key: "codigo", label: "Código", required: true, unico: true, placeholder: "CC 4100" },
-          { key: "descricao", label: "Descrição", required: true },
-          { key: "unidade_id", label: "Unidade", type: "select", opcoes: { tabela: "unidades", rotulo: (r) => r.nome }, ajuda: "Vazio: aparece para todas as unidades." },
-          { key: "teto_por_corrida", label: "Teto por corrida (R$)", type: "number", ajuda: "Valor acima disso gera alerta ao planejamento." },
-        ]} />}
 
       {aba === "unidades" && <Crud key="uni" table="unidades" title="Unidades" nomeItem="unidade" ordem="nome"
         subtitulo="Unidades da empresa. As que têm endereço aparecem para todos no app de pedido, em “local cadastrado”."

@@ -124,11 +124,9 @@ export function valorEsperado(c: Pick<Corrida, "distancia_km">, forn: Fornecedor
   return Math.round((Number(forn.bandeirada ?? 0) + Number(forn.valor_km) * Number(c.distancia_km)) * 100) / 100;
 }
 
-/** Confere o valor informado contra o teto do centro de custo, a tarifa do trajeto e o limite mensal da pessoa. */
+/** Confere o valor informado contra a tabela de preços (ou a tarifa por km) e o limite mensal da pessoa. */
 export async function verificarValor(repo: Repo, c: Corrida, valor: number, agora: Date): Promise<Saida[]> {
   const problemas: string[] = [];
-  const cc = c.centro_custo_id ? await repo.centroCusto(c.centro_custo_id) : null;
-  if (cc?.teto_por_corrida && valor > Number(cc.teto_por_corrida)) problemas.push(`valor ${brl(valor)} acima do teto de ${brl(Number(cc.teto_por_corrida))} do ${cc.codigo}`);
   const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
   // Tabela de preços combinada com o fornecedor: valor acima dela é sempre apontado ao planejamento
   const tabela = await repo.precoTabela(c).catch(() => null);

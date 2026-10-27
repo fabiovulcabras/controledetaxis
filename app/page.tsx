@@ -21,7 +21,7 @@ type Linha = {
 type Resumo = {
   por_status: Record<string, number>; total: number; valor_total: number;
   por_dia: { dia: string; qtd: number; valor: number }[];
-  por_centro: { nome: string; qtd: number; valor: number }[];
+  por_solicitante: { nome: string; qtd: number; valor: number }[];
   por_fornecedor: { nome: string; qtd: number; valor: number }[];
 };
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
@@ -128,8 +128,8 @@ export default function VisaoGeral() {
             <Barras dados={(resumo?.por_fornecedor ?? []).filter((f) => f.valor > 0)} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
           </section>
           <section className="card">
-            <div className="repor-topo"><div><h3>Valor por centro de custo</h3></div></div>
-            <Barras dados={(resumo?.por_centro ?? []).filter((c) => c.valor > 0)} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
+            <div className="repor-topo"><div><h3>Valor por pessoa autorizada</h3></div></div>
+            <Barras dados={(resumo?.por_solicitante ?? []).filter((c) => c.valor > 0).slice(0, 8)} vazio={`Nenhuma corrida concluída em ${nomeMes}.`} />
           </section>
         </div>
       </div>

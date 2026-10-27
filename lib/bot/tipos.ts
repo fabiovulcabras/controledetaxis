@@ -2,7 +2,7 @@ import type { OrigemEvento, StatusCorrida } from "../status";
 
 export type Solicitante = {
   id: string; nome: string; matricula?: string | null; setor?: string | null; telefone_whatsapp: string;
-  unidade_id?: string | null; centro_custo_padrao_id?: string | null; fornecedor_padrao_id?: string | null; ativo: boolean;
+  unidade_id?: string | null; fornecedor_padrao_id?: string | null; ativo: boolean;
   token_pedido?: string;
   limite_mensal?: number | null;
 };
@@ -13,10 +13,9 @@ export type Fornecedor = {
 export type Unidade = { id: string; nome: string; endereco_padrao?: string | null; lat?: number | null; lng?: number | null; ativo?: boolean };
 /** Unidade com endereço ou local frequente (Cadastros), oferecido como origem e destino. */
 export type LocalCadastrado = { id: string; nome: string; endereco: string; lat: number | null; lng: number | null; tipo: "unidade" | "local" };
-export type CentroCusto = { id: string; codigo: string; descricao: string; unidade_id?: string | null; teto_por_corrida?: number | null; ativo: boolean };
 
 export type Corrida = {
-  id: string; protocolo: string; solicitante_id: string; fornecedor_id: string | null; centro_custo_id: string | null;
+  id: string; protocolo: string; solicitante_id: string; fornecedor_id: string | null;
   tipo: "imediata" | "agendada"; data_hora_prevista: string; origem: string; destino: string;
   origem_lat?: number | null; origem_lng?: number | null; destino_lat?: number | null; destino_lng?: number | null;
   qtd_passageiros: number; outros_passageiros?: string | null; motivo: string; status: StatusCorrida;
@@ -32,7 +31,7 @@ export type Corrida = {
   criado_em: string;
 };
 
-export type NovaCorrida = Pick<Corrida, "solicitante_id" | "centro_custo_id" | "tipo" | "data_hora_prevista" | "origem" | "destino" | "qtd_passageiros" | "motivo">
+export type NovaCorrida = Pick<Corrida, "solicitante_id" | "tipo" | "data_hora_prevista" | "origem" | "destino" | "qtd_passageiros" | "motivo">
   & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio">>;
 
 export type CamposCorrida = Partial<Pick<Corrida,
@@ -86,8 +85,6 @@ export interface Repo {
   cotacao(fornecedorId: string, c: Corrida): Promise<{ atende: boolean; valor: number | null }>;
   /** Unidades ativas com endereço e locais frequentes ativos, por nome. */
   locaisCadastrados(): Promise<LocalCadastrado[]>;
-  centroCusto(id: string): Promise<CentroCusto | null>;
-  centrosCusto(unidadeId?: string | null): Promise<CentroCusto[]>;
   parametro(chave: string): Promise<string | null>;
 
   conversa(telefone: string): Promise<Conversa | null>;

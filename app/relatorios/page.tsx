@@ -20,7 +20,7 @@ type Resumo = {
   valor_tabela: number; valor_informado_com_tabela: number; acima_tabela: number; excesso_tabela: number;
   viagens: { recebidas: number; aceitas: number; decididas: number; minutos_resposta: number | null };
   por_dia: { dia: string; qtd: number; valor: number }[];
-  por_centro: Grupo[]; por_solicitante: Grupo[]; por_fornecedor: Fornecedor[];
+  por_solicitante: Grupo[]; por_fornecedor: Fornecedor[];
 };
 type Periodo = "mes" | "anterior" | "30dias" | "livre";
 type Opcao = { id: string; nome: string };
@@ -41,29 +41,26 @@ function intervalo(p: Periodo, agora = new Date()): [string, string] {
   return [isoDia(new Date(agora.getTime() - 29 * 86400_000)), isoDia(agora)];
 }
 
-/** Gasto e desempenho no período, com filtro por fornecedor, centro de custo e pessoa autorizada. */
+/** Gasto e desempenho no período, com filtro por fornecedor e pessoa autorizada. */
 export default function Relatorios() {
   const { avisar } = useRetorno();
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [[de, ate], setIntervalo] = useState<[string, string]>(() => intervalo("mes"));
   const [fornecedor, setFornecedor] = useState("");
-  const [centro, setCentro] = useState("");
   const [pessoa, setPessoa] = useState("");
-  const [opcoes, setOpcoes] = useState<{ fornecedores: Opcao[]; centros: Opcao[]; pessoas: Opcao[] }>({ fornecedores: [], centros: [], pessoas: [] });
+  const [opcoes, setOpcoes] = useState<{ fornecedores: Opcao[]; pessoas: Opcao[] }>({ fornecedores: [], pessoas: [] });
   const [r, setR] = useState<Resumo | null>(null);
   const [err, setErr] = useState("");
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [f, c, s] = await Promise.all([
+      const [f, s] = await Promise.all([
         supabase.from("fornecedores").select("id,nome").order("nome"),
-        supabase.from("centros_custo").select("id,codigo,descricao").order("codigo"),
         supabase.from("solicitantes").select("id,nome").order("nome"),
       ]);
       setOpcoes({
         fornecedores: (f.data ?? []) as Opcao[],
-        centros: (c.data ?? []).map((x: any) => ({ id: x.id, nome: `${x.codigo} · ${x.descricao}` })),
         pessoas: (s.data ?? []) as Opcao[],
       });
     })();
@@ -74,18 +71,18 @@ export default function Relatorios() {
       setCarregando(true);
       const { data, error } = await supabase.rpc("fn_relatorio", {
         p_de: deIso(de).toISOString(), p_ate: deIso(ate, true).toISOString(),
-        p_fornecedor: fornecedor || null, p_centro: centro || null, p_solicitante: pessoa || null,
+        p_fornecedor: fornecedor || null, p_solicitante: pessoa || null,
       });
       setErr(error ? `Não foi possível gerar o relatório: ${error.message}${/could not find|does not exist/i.test(error.message) ? " — rode a migração supabase/009_relatorios.sql." : ""}` : "");
       setR((data as Resumo) ?? null);
       setCarregando(false);
     })();
-  }, [de, ate, fornecedor, centro, pessoa]);
+  }, [de, ate, fornecedor, pessoa]);
 
   const forn = r?.por_fornecedor ?? [];
   const v = r?.viagens;
-  const filtrado = !!(fornecedor || centro || pessoa);
-  const nomeFiltro = [opcoes.fornecedores.find((x) => x.id === fornecedor)?.nome, opcoes.centros.find((x) => x.id === centro)?.nome, opcoes.pessoas.find((x) => x.id === pessoa)?.nome].filter(Boolean).join(" · ");
+  const filtrado = !!(fornecedor || pessoa);
+  const nomeFiltro = [opcoes.fornecedores.find((x) => x.id === fornecedor)?.nome, opcoes.pessoas.find((x) => x.id === pessoa)?.nome].filter(Boolean).join(" · ");
   const sufixo = `${de}-a-${ate}`;
 
   const exportar = () => {
@@ -98,14 +95,11 @@ export default function Relatorios() {
       { titulo: "Acima da tabela", formato: "inteiro", largura: 14 }, { titulo: "Excesso", formato: "moeda", largura: 14 },
     ], forn.map((f) => [f.nome, f.recebidas, f.aceitas, f.recusadas, f.sem_resposta, taxaAceite(f.aceitas, f.aceitas + f.recusadas + f.sem_resposta),
       minutosInteiros(f.minutos_resposta), f.qtd, Number(f.valor), f.com_tabela ? Number(f.valor_tabela) : null, f.acima_tabela, Number(f.excesso)]));
-    baixarXlsx(`centros-de-custo-${sufixo}.xlsx`, "Centros de custo", [
-      { titulo: "Centro de custo", largura: 30 }, { titulo: "Corridas", formato: "inteiro" }, { titulo: "Valor informado", formato: "moeda", largura: 16 },
-    ], r.por_centro.map((c) => [c.nome, c.qtd, Number(c.valor)]));
     baixarXlsx(`pessoas-${sufixo}.xlsx`, "Pessoas autorizadas", [
       { titulo: "Pessoa", largura: 24 }, { titulo: "Setor", largura: 16 }, { titulo: "Corridas", formato: "inteiro" }, { titulo: "Canceladas", formato: "inteiro" },
       { titulo: "Valor informado", formato: "moeda", largura: 16 }, { titulo: "Limite mensal", formato: "moeda", largura: 14 },
     ], r.por_solicitante.map((s) => [s.nome, s.setor ?? "", s.qtd, s.canceladas ?? 0, Number(s.valor), s.limite == null ? null : Number(s.limite)]));
-    avisar("Três planilhas baixadas: fornecedores, centros de custo e pessoas.");
+    avisar("Duas planilhas baixadas: fornecedores e pessoas.");
   };
 
   return (
@@ -123,9 +117,8 @@ export default function Relatorios() {
         </div>
         <div className="filtros-corridas" style={{ marginBottom: 0 }}>
           <Selecao rotulo="Fornecedor" valor={fornecedor} set={setFornecedor} lista={opcoes.fornecedores} todos="Todos os fornecedores" />
-          <Selecao rotulo="Centro de custo" valor={centro} set={setCentro} lista={opcoes.centros} todos="Todos os centros" />
           <Selecao rotulo="Pessoa autorizada" valor={pessoa} set={setPessoa} lista={opcoes.pessoas} todos="Todas as pessoas" />
-          {filtrado && <button type="button" className="ghost" onClick={() => { setFornecedor(""); setCentro(""); setPessoa(""); }}>Limpar filtros</button>}
+          {filtrado && <button type="button" className="ghost" onClick={() => { setFornecedor(""); setPessoa(""); }}>Limpar filtros</button>}
         </div>
       </section>
       {err && <div className="err">{err}</div>}
@@ -196,8 +189,8 @@ export default function Relatorios() {
           {!r?.por_solicitante?.length && <p className="empty">{carregando ? "Carregando…" : "Sem corridas no período."}</p>}
         </section>
         <section className="card">
-          <div className="repor-topo"><div><h3>Centros de custo</h3></div></div>
-          <Barras dados={(r?.por_centro ?? []).filter((c) => c.valor > 0)} vazio={carregando ? "Carregando…" : "Nenhuma corrida concluída no período."} />
+          <div className="repor-topo"><div><h3>Valor por fornecedor</h3></div></div>
+          <Barras dados={forn.filter((f) => f.valor > 0).map((f) => ({ nome: f.nome, qtd: f.qtd, valor: Number(f.valor) }))} vazio={carregando ? "Carregando…" : "Nenhuma corrida concluída no período."} />
         </section>
       </div>
     </>

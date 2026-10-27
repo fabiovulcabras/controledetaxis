@@ -172,24 +172,14 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   const pOrigem = () => pLugar("origem");
   const pDestino = () => pLugar("destino");
   const pPax = () => pergunta(tel, "Quantos passageiros?", OPCOES_PAX);
-  const centros = async () => (await repo.centrosCusto(sol.unidade_id)).filter((c) => c.ativo).slice(0, 10);
-  const pCentro = async (): Promise<Saida> => {
-    const padrao = sol.centro_custo_padrao_id ? await repo.centroCusto(sol.centro_custo_padrao_id) : null;
-    if (padrao?.ativo) return pergunta(tel, `Qual centro de custo? O seu padrão é ${padrao.codigo} · ${padrao.descricao}.`,
-      [{ id: `cc:${padrao.id}`, titulo: `${padrao.codigo} (padrão)`.slice(0, 20) }, { id: "cc_outro", titulo: "Outro" }]);
-    return pListaCentros();
-  };
-  const pListaCentros = async (): Promise<Saida> => pergunta(tel, "Escolha o centro de custo:",
-    (await centros()).map((c) => ({ id: `cc:${c.id}`, titulo: c.codigo.slice(0, 24), descricao: c.descricao.slice(0, 72) })), "Ver centros");
   const pMotivo = () => pergunta(tel, "Qual o motivo da corrida? Escolha ou escreva.", OPCOES_MOTIVO);
   const resumo = async (d: Record<string, any>) => {
-    const cc = d.centro_custo_id ? await repo.centroCusto(d.centro_custo_id) : null;
     return pergunta(tel, [
       "Confira sua solicitação:", "",
       `Quando: ${d.tipo === "imediata" ? "agora" : formatarDataHora(d.data_hora_prevista)}`,
       `Origem: ${d.origem}`, `Destino: ${d.destino}`,
       `Passageiros: ${d.qtd_passageiros}${d.outros_passageiros ? ` (${d.outros_passageiros})` : ""}`,
-      `Centro de custo: ${cc ? `${cc.codigo} · ${cc.descricao}` : "-"}`, `Motivo: ${d.motivo}`,
+      `Motivo: ${d.motivo}`,
     ].join("\n"), OPCOES_CONFIRMAR);
   };
   const lugar = async (padrao: "origem" | "destino") => {
@@ -265,7 +255,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       const digitado = Number((e.texto ?? "").replace(/\D/g, ""));
       const qtd = op ? Number(op.split(":")[1]) : Number.isInteger(digitado) && digitado >= 1 && digitado <= 20 ? digitado : 0;
       if (!qtd) return invalida(pPax());
-      if (qtd === 1) return ir("centro_custo", await pCentro(), { qtd_passageiros: 1, outros_passageiros: null });
+      if (qtd === 1) return ir("motivo", pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
       if (op === "pax:3") return ir("passageiros_qtd", pergunta(tel, "Quantas pessoas no total, contando você?"));
       return ir("passageiros_nomes", pergunta(tel, `Informe o nome ${qtd === 2 ? "do outro passageiro" : "dos outros passageiros"}.`), { qtd_passageiros: qtd });
     }
@@ -273,26 +263,17 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     case "passageiros_qtd": {
       const qtd = Number((e.texto ?? "").replace(/\D/g, ""));
       if (!Number.isInteger(qtd) || qtd < 1 || qtd > 20) return invalida(pergunta(tel, "Envie só o número de pessoas, por exemplo 4."));
-      if (qtd === 1) return ir("centro_custo", await pCentro(), { qtd_passageiros: 1, outros_passageiros: null });
+      if (qtd === 1) return ir("motivo", pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
       return ir("passageiros_nomes", pergunta(tel, "Informe o nome dos outros passageiros."), { qtd_passageiros: qtd });
     }
 
     case "passageiros_nomes": {
       if ((e.texto ?? "").length < 2) return invalida(pergunta(tel, "Escreva o nome dos outros passageiros."));
-      return ir("centro_custo", await pCentro(), { outros_passageiros: e.texto });
+      return ir("motivo", pMotivo(), { outros_passageiros: e.texto });
     }
 
-    case "centro_custo": {
-      if (e.botaoId === "cc_outro" || semAcento(e.texto ?? "") === "outro") return ir("centro_custo", await pListaCentros());
-      let id = e.botaoId?.startsWith("cc:") ? e.botaoId.slice(3) : null;
-      if (!id && e.texto) {
-        const t = semAcento(e.texto).replace(/\s+/g, "");
-        id = (await centros()).find((c) => semAcento(c.codigo).replace(/\s+/g, "") === t || semAcento(c.codigo).replace(/\D/g, "") === t)?.id ?? null;
-      }
-      const cc = id ? await repo.centroCusto(id) : null;
-      if (!cc?.ativo) return invalida(await pCentro());
-      return ir("motivo", pMotivo(), { centro_custo_id: cc.id });
-    }
+    case "centro_custo": // conversa antiga, de antes de o centro de custo sair do pedido
+      return ir("motivo", pMotivo());
 
     case "motivo": {
       const op = escolha(e, OPCOES_MOTIVO);
@@ -352,7 +333,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
 async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, agora: Date): Promise<Saida[]> {
   const tel = sol.telefone_whatsapp;
   const corrida = await repo.criarCorrida({
-    solicitante_id: sol.id, centro_custo_id: d.centro_custo_id ?? null, tipo: d.tipo ?? "imediata",
+    solicitante_id: sol.id, tipo: d.tipo ?? "imediata",
     data_hora_prevista: d.data_hora_prevista ?? agora.toISOString(), origem: d.origem, destino: d.destino,
     origem_lat: d.origem_lat ?? null, origem_lng: d.origem_lng ?? null, destino_lat: d.destino_lat ?? null, destino_lng: d.destino_lng ?? null,
     qtd_passageiros: d.qtd_passageiros ?? 1, outros_passageiros: d.outros_passageiros ?? null, motivo: d.motivo,
