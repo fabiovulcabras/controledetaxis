@@ -11,6 +11,7 @@ type Corrida = {
   origem: string; destino: string; passageiros: number; outros_passageiros: string | null; solicitante: string; prazo: string | null;
   motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string;
   prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null; autorizado?: boolean;
+  valor_tabela?: number | null; tabela_descricao?: string | null;
 };
 type Link = { rotulo: string; url: string };
 type Tela = null | "aceitar" | "recusar" | "valor" | "nao_realizada";
@@ -86,6 +87,7 @@ export default function RespostaFornecedor() {
           {c.prazo && <><dt>Responder até</dt><dd><strong>{c.prazo}</strong> <Prazo ate={c.prazo_iso} /></dd></>}
           {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
           {c.motorista && <><dt>Motorista</dt><dd>{[c.motorista, c.placa, c.minutos ? `${c.minutos} min` : null].filter(Boolean).join(" · ")}</dd></>}
+          {c.valor_tabela != null && <><dt>Valor da tabela</dt><dd><strong>{brl(c.valor_tabela)}</strong><small className="bloco texto-fraco">{c.tabela_descricao}</small></dd></>}
           {c.valor != null && <><dt>Valor informado</dt><dd>{brl(c.valor)}</dd></>}
           {c.motivo_cancelamento && <><dt>Cancelamento</dt><dd>{c.motivo_cancelamento}</dd></>}
         </dl>
@@ -146,7 +148,7 @@ export default function RespostaFornecedor() {
         <form className="card" onSubmit={(e) => { e.preventDefault(); void agir("concluir", { valor: form.valor }, "Corrida concluída. Obrigado!"); }}>
           <h3 style={{ marginTop: 0 }}>Valor da corrida</h3>
           <div style={{ display: "grid", gap: 12 }}>
-            <Campo rotulo="Valor (R$)" obrigatorio ajuda={`O valor precisa ser o mesmo da fatura; o planejamento confere pelo protocolo.${c.valor_esperado != null ? ` Referência pela tarifa: ${brl(c.valor_esperado)}.` : ""}`}><input inputMode="decimal" value={form.valor} onChange={campo("valor")} placeholder="68,50" autoFocus /></Campo>
+            <Campo rotulo="Valor (R$)" obrigatorio ajuda={`O valor precisa ser o mesmo da fatura; o planejamento confere pelo protocolo.${c.valor_tabela != null ? ` Valor da tabela: ${brl(c.valor_tabela)}; acima disso, o planejamento confere.` : c.valor_esperado != null ? ` Referência pela tarifa: ${brl(c.valor_esperado)}.` : ""}`}><input inputMode="decimal" value={form.valor} onChange={campo("valor")} placeholder="68,50" autoFocus /></Campo>
             <button className="pri botao-grande" disabled={ocupado || !form.valor.trim()}>{ocupado ? "Registrando…" : "Concluir corrida"}</button>
             <button type="button" className="ghost" onClick={() => setTela(null)}>Voltar</button>
           </div>

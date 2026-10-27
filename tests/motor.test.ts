@@ -3,6 +3,7 @@ import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor"
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
+import { escolherPreco, lerTabelaPrecos, pontoDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
@@ -662,5 +663,75 @@ describe("locais cadastrados no bot", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, texto: "2" });
     expect((await c.repo.conversa(ANA))?.dados.origem).toBe("Pronto Socorro Municipal – Rua B, 20");
+  });
+});
+
+describe("tabela de preços", () => {
+  const L = (localidade: string, cidade: string, bairro: string | null, modalidade: LinhaPreco["modalidade"], veiculo: LinhaPreco["veiculo"], valor: number, apelidos: string | null = null): LinhaPreco =>
+    ({ id: `${localidade}-${modalidade}-${veiculo}`, fornecedor_id: "f1", localidade, cidade, bairro, apelidos, modalidade, veiculo, valor });
+  const tabela = [
+    L("Extrema (Central) - MG", "Extrema", null, "unico", "passeio", 82), L("Extrema (Central) - MG", "Extrema", null, "diversos", "passeio", 106),
+    L("Extrema (Central) - MG", "Extrema", null, "unico", "spin", 129), L("Extrema (Central) - MG", "Extrema", null, "diversos", "spin", 153),
+    L("Extrema - Mantiqueira", "Extrema", "Mantiqueira", "unico", "passeio", 129, "atras da bauducco"),
+    L("Extrema - Salto do meio", "Extrema", "Salto do Meio", "unico", "passeio", 129),
+    L("Toledo - MG", "Toledo", null, "unico", "passeio", 158), L("Toledo - Pereiras", "Toledo", "Pereiras", "unico", "passeio", 234),
+    L("Toledo - Pereiras", "Toledo", "Pereiras", "diversos", "van", 587),
+    L("Vargem - SP", "Vargem", null, "unico", "passeio", 94), L("Atibaia - SP", "Atibaia", null, "unico", "passeio", 299),
+    L("São José dos Campos - SP", "São José dos Campos", null, "unico", "passeio", 520), L("São Paulo - Capital", "São Paulo", null, "unico", "passeio", 465),
+  ];
+
+  it("dentro de Extrema vale o bairro; sem bairro na tabela, o resto da cidade", () => {
+    expect(escolherPreco(tabela, { cidade: "Extrema", bairros: ["Salto do Meio"], texto: "Rua das Flores, 10" }, 1)?.valor).toBe(129);
+    expect(escolherPreco(tabela, { texto: "Rua X, 20 - Mantiqueira, Extrema - MG" }, 1)?.valor).toBe(129);
+    expect(escolherPreco(tabela, { texto: "Rua de trás, atrás da Bauducco, Extrema" }, 1)?.valor).toBe(129);
+    expect(escolherPreco(tabela, { cidade: "Extrema", bairros: ["Ponte Nova"], texto: "Av. Brasil, 5" }, 1)?.valor).toBe(82);
+  });
+
+  it("fora de Extrema vale a cidade, com o bairro quando a tabela tem", () => {
+    expect(escolherPreco(tabela, { cidade: "Toledo", bairros: ["Centro"], texto: "Rua A" }, 1)?.valor).toBe(158);
+    expect(escolherPreco(tabela, { texto: "Estrada do Bairro dos Pereiras, km 3, Toledo - MG" }, 1)?.valor).toBe(234);
+    expect(escolherPreco(tabela, { texto: "Av. X, São José dos Campos - SP" }, 1)?.valor).toBe(520);
+    expect(escolherPreco(tabela, { texto: "Rua Y, Itapeva - MG" }, 1)).toBeNull();
+  });
+
+  it("veículo e destino pelos passageiros", () => {
+    const p = escolherPreco(tabela, { cidade: "Extrema", texto: "Centro" }, 3);
+    expect([p?.valor, p?.veiculo, p?.modalidade]).toEqual([106, "passeio", "diversos"]);
+    expect(escolherPreco(tabela, { cidade: "Extrema", texto: "Centro" }, 5)?.valor).toBe(153);
+    expect(escolherPreco(tabela, { texto: "Pereiras, Toledo" }, 8)?.valor).toBe(587);
+    // Atibaia só tem destino único: com 2 passageiros usa o que existe
+    expect(escolherPreco(tabela, { texto: "Atibaia - SP" }, 2)?.valor).toBe(299);
+    expect(escolherPreco(tabela, { texto: "Atibaia - SP" }, 6)).toBeNull();
+  });
+
+  it("volta para a unidade usa a origem para o preço", () => {
+    expect(pontoDoPreco({ origem: "Rua A, Toledo", destino: "CD Extrema – Rod. Fernão Dias" }, ["CD Extrema"])).toBe("origem");
+    expect(pontoDoPreco({ origem: "CD Extrema – Rod. Fernão Dias", destino: "Rua A, Toledo" }, ["CD Extrema"])).toBe("destino");
+  });
+
+  it("valor acima da tabela gera alerta ao planejamento e aviso ao fornecedor", async () => {
+    const c = conversa();
+    c.repo.precos.push(L("Guarulhos", "Guarulhos", null, "qualquer", "passeio", 410));
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    const dados = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    expect(ultima(dados, RTC).texto).toMatch(/Valor da tabela: R\$\s410,00/);
+    const s = await c.enviar({ telefone: RTC, texto: "450,00" });
+    expect(ultima(s, RTC).texto).toContain("acima da tabela");
+    expect(para(s, PLAN).some((x) => /acima da tabela: R\$\s410,00/.test(x.texto))).toBe(true);
+  });
+
+  it("lê a planilha exportada pelo painel", () => {
+    const { itens, erros } = lerTabelaPrecos([
+      ["Fornecedor", "Localidade", "Cidade", "UF", "Bairro", "Apelidos", "Modalidade", "Veículo", "Valor"],
+      ["Reinaldo Táxi", "Toledo - Pereiras", "Toledo", "MG", "Pereiras", "", "destino único", "Passeio (4 lugares)", "234"],
+      ["reinaldo", "", "Extrema", "MG", "", "", "Diversos destinos", "Spin - 6 Lugares", "R$ 153,00"],
+      ["Outro", "", "Vargem", "SP", "", "", "", "Van", "287"],
+    ], [{ id: "f9", nome: "Reinaldo Táxi" }]);
+    expect(erros).toEqual(['Linha 4: fornecedor "Outro" não cadastrado.']);
+    expect(itens.map((i) => [i.fornecedor_id, i.localidade, i.bairro, i.modalidade, i.veiculo, i.valor])).toEqual([
+      ["f9", "Toledo - Pereiras", "Pereiras", "unico", "passeio", 234],
+      ["f9", "Extrema", null, "diversos", "spin", 153],
+    ]);
   });
 });

@@ -27,6 +27,8 @@ export type Corrida = {
   fornecedores_tentados?: string[];
   distancia_km?: number | null;
   chave_envio?: string | null;
+  /** Valor da tabela de preços do fornecedor para esta corrida (migração 008) */
+  valor_tabela?: number | null; preco_descricao?: string | null; preco_fornecedor_id?: string | null; preco_calculado_em?: string | null;
   criado_em: string;
 };
 
@@ -72,6 +74,11 @@ export interface Repo {
   fornecedor(id: string): Promise<Fornecedor | null>;
   fornecedoresAtivos(): Promise<Fornecedor[]>;
   unidade(id: string): Promise<Unidade | null>;
+  /**
+   * Valor da tabela de preços do fornecedor da corrida (cidade/bairro, veículo e modalidade pelos passageiros).
+   * Null quando o fornecedor não tem tabela ou o local não está nela.
+   */
+  precoTabela(c: Corrida): Promise<{ valor: number; descricao: string } | null>;
   /** Unidades ativas com endereço e locais frequentes ativos, por nome. */
   locaisCadastrados(): Promise<LocalCadastrado[]>;
   centroCusto(id: string): Promise<CentroCusto | null>;

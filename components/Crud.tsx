@@ -6,10 +6,11 @@ import { Campo, Filtros, PainelLateral, TopoPagina, normalizarTexto } from "@/co
 import { formatarTelefone, normalizarTelefone, soDigitos } from "@/lib/telefone";
 import { useRetorno } from "@/components/Retorno";
 
-export type Opcoes = { tabela: string; valor?: string; rotulo: (r: any) => string };
+/** Opções de um select: vindas de uma tabela, ou uma lista fixa. */
+export type Opcoes = { tabela?: string; valor?: string; rotulo?: (r: any) => string; fixas?: { valor: string; rotulo: string }[] };
 export type CampoCrud = {
   key: string; label: string; required?: boolean; type?: "text" | "email" | "number" | "select"; ajuda?: string; largo?: boolean;
-  placeholder?: string; mascara?: "cnpj" | "whatsapp"; unico?: boolean; opcoes?: Opcoes; esconderNaTabela?: boolean;
+  placeholder?: string; mascara?: "cnpj" | "whatsapp"; unico?: boolean; opcoes?: Opcoes; esconderNaTabela?: boolean; moeda?: boolean;
 };
 type Filtro = "ativos" | "inativos" | "todos";
 
@@ -53,8 +54,9 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
     setRows(data ?? []);
     const listas: Record<string, { valor: string; rotulo: string }[]> = {};
     for (const f of fields.filter((x) => x.opcoes)) {
-      const { data: d } = await supabase.from(f.opcoes!.tabela).select("*");
-      listas[f.key] = (d ?? []).map((r: any) => ({ valor: String(r[f.opcoes!.valor ?? "id"]), rotulo: f.opcoes!.rotulo(r) }))
+      if (f.opcoes!.fixas) { listas[f.key] = f.opcoes!.fixas; continue; }
+      const { data: d } = await supabase.from(f.opcoes!.tabela!).select("*");
+      listas[f.key] = (d ?? []).map((r: any) => ({ valor: String(r[f.opcoes!.valor ?? "id"]), rotulo: f.opcoes!.rotulo!(r) }))
         .sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR"));
     }
     setOpcoes(listas);
@@ -65,6 +67,7 @@ export default function Crud({ table, title, subtitulo, nomeItem, fields, ordem,
     const v = r[f.key];
     if (v == null || v === "") return null;
     if (f.opcoes) return opcoes[f.key]?.find((o) => o.valor === String(v))?.rotulo ?? "—";
+    if (f.moeda) return Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
     if (f.mascara === "whatsapp") return formatarTelefone(String(v));
     if (f.mascara === "cnpj") return aplicarMascara(String(v), "cnpj");
     return String(v);

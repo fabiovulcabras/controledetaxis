@@ -23,8 +23,11 @@ export async function GET(req: Request) {
     const c = await corridaPorTokenFornecedor(token);
     if (!c) return erroJson(LINK_ANTIGO, 404);
     const repo = repoServidor();
-    const [sol, forn] = await Promise.all([repo.solicitante(c.solicitante_id), c.fornecedor_id ? repo.fornecedor(c.fornecedor_id) : null]);
+    const [sol, forn, tabela] = await Promise.all([
+      repo.solicitante(c.solicitante_id), c.fornecedor_id ? repo.fornecedor(c.fornecedor_id) : null, repo.precoTabela(c).catch(() => null),
+    ]);
     return Response.json({
+      valor_tabela: tabela?.valor ?? null, tabela_descricao: tabela?.descricao ?? null,
       autorizado: await aparelhoDoFornecedor(req, c.fornecedor_id),
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status].rotulo, fornecedor: forn?.nome ?? null,
       quando: c.tipo === "imediata" ? `Agora (pedido às ${formatarDataHora(c.criado_em).slice(6)})` : formatarDataHora(c.data_hora_prevista),

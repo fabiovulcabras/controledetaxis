@@ -31,7 +31,7 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, centros de custo, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -147,6 +147,7 @@ tests/                   testes do motor do bot
 - Prazo de resposta: o do fornecedor para corridas imediatas; `prazo_agendada_min` para agendadas. O fornecedor ainda pode aceitar depois do prazo, e o planejamento é avisado.
 - Valor acima do teto do centro de custo gera alerta. Também geram alerta: valor acima da tarifa de referência do fornecedor (`bandeirada` + `valor_km` × distância, mais `tolerancia_trajeto_pct`) e gasto da pessoa acima do `limite_mensal` dela.
 - Só o fornecedor responde: o link `/f/…` da corrida passa pelo WhatsApp do solicitante, então sozinho ele só mostra a corrida. Aceitar, recusar, informar valor ou marcar como não realizada exige o aparelho identificado, abrindo o portal do fornecedor ou digitando o código de acesso de 6 dígitos (tela Portais dos fornecedores). Gerar novo link do portal desliga os aparelhos já identificados.
+- **Tabela de preços** (Cadastros › Tabela de preços): valores combinados com cada fornecedor, por cidade fora de Extrema e por bairro dentro (linha sem bairro = resto da cidade). O sistema localiza o destino (ou a origem, quando o destino é uma unidade), escolhe veículo e tipo de destino pelos passageiros (1 = Passeio, destino único; 2 a 4 = Passeio, diversos; 5 e 6 = Spin; 7+ = Van) e mostra o valor de tabela ao fornecedor. Valor informado acima da tabela gera alerta e aparece em vermelho na lista de corridas. Importa e exporta em Excel.
 - Recusa ou falta de resposta reenvia sozinha ao próximo fornecedor ativo ainda não tentado (parâmetro `reenvio_automatico`; `nao` desliga).
 - Pedido por link: no máximo `limite_pedidos_hora` por pessoa por hora; o mesmo pedido enviado duas vezes (clique duplo, rede instável) cria uma corrida só. As rotas públicas têm limite de tentativas por minuto.
 - E-mail ao planejamento (opcional): defina `RESEND_API_KEY` e `EMAIL_REMETENTE` e preencha o parâmetro `planejamento_emails`.

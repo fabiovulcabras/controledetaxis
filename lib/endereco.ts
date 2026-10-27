@@ -28,6 +28,36 @@ export async function enderecoPorCoordenadas(lat: number, lng: number, identific
   } catch { return null; }
 }
 
+/** Cidade e bairros de um ponto pelo mapa (Nominatim). Null se o serviço não responder. */
+export async function localidadePorCoordenadas(lat: number, lng: number, identificacao = "app interno"): Promise<{ cidade: string | null; bairros: string[]; texto: string } | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=pt-BR`,
+      { headers: { "User-Agent": `ControleDeTaxis/1.0 (${identificacao})` }, cache: "no-store", signal: AbortSignal.timeout(5000) },
+    );
+    if (!resp.ok) return null;
+    const r: any = await resp.json();
+    const a = r?.address ?? {};
+    const bairros = [a.suburb, a.neighbourhood, a.quarter, a.city_district, a.hamlet, a.village, a.isolated_dwelling, a.residential, a.road, a.amenity, a.aeroway].filter(Boolean);
+    return { cidade: a.city ?? a.town ?? a.municipality ?? a.village ?? null, bairros, texto: String(r?.display_name ?? "") };
+  } catch { return null; }
+}
+
+/** Cidade e bairro de um endereço escrito (busca do Photon/OpenStreetMap). Null se não achar. */
+export async function localidadePorTexto(texto: string): Promise<{ cidade: string | null; bairros: string[]; texto: string } | null> {
+  if (String(texto).trim().length < 4) return null;
+  try {
+    const resp = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(texto.slice(0, 160))}&limit=1&bbox=-74.0,-33.8,-34.7,5.3`, {
+      headers: { "User-Agent": "ControleDeTaxis/1.0" }, cache: "no-store", signal: AbortSignal.timeout(4000),
+    });
+    if (!resp.ok) return null;
+    const p: any = (await resp.json())?.features?.[0]?.properties;
+    if (!p) return null;
+    return { cidade: p.city ?? p.county ?? null, bairros: [p.district, p.locality, p.name, p.street].filter(Boolean), texto: [p.name, p.street, p.district, p.city].filter(Boolean).join(", ") };
+  } catch { return null; }
+}
+
 export type Sugestao = { endereco: string; detalhe: string; lat: number; lng: number };
 
 const UF: Record<string, string> = {

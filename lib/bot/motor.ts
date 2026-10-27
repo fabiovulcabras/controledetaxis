@@ -381,6 +381,12 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
 }
 
 // ---------------------------------------------------------------- Fornecedor
+/** " Valor da tabela: R$ 164,00 (Toledo - Pereiras · Passeio)." ou vazio quando não há tabela para a corrida. */
+async function textoTabela(repo: Repo, c: Corrida): Promise<string> {
+  const t = await repo.precoTabela(c).catch(() => null);
+  return t ? ` Valor da tabela: ${brl(t.valor)} (${t.descricao}).` : "";
+}
+
 const ACOES_FORNECEDOR = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):(.+)$/;
 
 async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: Date): Promise<Saida[]> {
@@ -426,7 +432,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
       if (c.status !== "aceita") return [responder(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}".`)];
       await repo.mudarStatus(c.id, "em_andamento", "fornecedor", "Passageiro embarcou");
       await repo.salvarConversa(tel, "valor", { corrida_id: c.id }, agora);
-      return [responder(`Embarque da corrida ${c.protocolo} registrado. Ao terminar, envie o valor da corrida (exemplo: 68,50).`, undefined, c.id)];
+      return [responder(`Embarque da corrida ${c.protocolo} registrado. Ao terminar, envie o valor da corrida (exemplo: 68,50).${await textoTabela(repo, c)}`, undefined, c.id)];
     }
 
     if (acao === "NAO_REALIZADA") {
@@ -452,7 +458,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     await repo.salvarConversa(tel, "aguardando", { corrida_id: c.id }, agora);
     const detalhes = [d.motorista, d.veiculo_placa ? `placa ${d.veiculo_placa}` : null, d.eta_minutos ? `chegada em cerca de ${d.eta_minutos} min` : null].filter(Boolean).join(", ");
     return [
-      responder(`Dados registrados para a corrida ${c.protocolo}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.`,
+      responder(`Dados registrados para a corrida ${c.protocolo}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.${await textoTabela(repo, atual)}`,
         [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
       ...await avisarSolicitante(repo, atual, `Sua corrida ${c.protocolo} foi aceita por ${forn.nome}. Motorista: ${detalhes}.`, `aceita por ${forn.nome}. Motorista: ${detalhes}`),
     ];
@@ -467,8 +473,12 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     }
     const atual = await repo.mudarStatus(c.id, "concluida", "fornecedor", `Concluída, valor informado ${brl(valor)}`, { valor_informado: valor });
     await repo.apagarConversa(tel);
+    const tabela = await repo.precoTabela(atual).catch(() => null);
+    const situacao = !tabela ? "" : valor > tabela.valor + 0.005
+      ? ` O valor está acima da tabela (${brl(tabela.valor)}); o planejamento vai conferir.`
+      : " Valor dentro da tabela.";
     return [
-      responder(`Valor de ${brl(valor)} registrado para a corrida ${c.protocolo}. Obrigado!`, undefined, c.id),
+      responder(`Valor de ${brl(valor)} registrado para a corrida ${c.protocolo}.${situacao} Obrigado!`, undefined, c.id),
       ...await verificarValor(repo, atual, valor, agora),
     ];
   }

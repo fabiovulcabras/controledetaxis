@@ -22,6 +22,7 @@ type Corrida = {
   motorista: string | null; veiculo_placa: string | null; eta_minutos: number | null;
   valor_informado: number | null; valor_faturado: number | null; prazo_resposta_em: string | null;
   motivo_recusa: string | null; motivo_cancelamento: string | null; distancia_km?: number | null;
+  valor_tabela?: number | null; preco_descricao?: string | null;
   solicitante_id: string; fornecedor_id: string | null; centro_custo_id: string | null;
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
   fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
@@ -42,6 +43,9 @@ const GRUPOS: Record<Grupo, StatusCorrida[] | null> = {
   canceladas: ["cancelada"],
 };
 const POR_PAGINA = 50;
+/** Valor informado acima da tabela de preços do fornecedor. */
+const acimaDaTabela = (c: { valor_informado: number | null; valor_tabela?: number | null }) =>
+  c.valor_informado != null && c.valor_tabela != null && Number(c.valor_informado) > Number(c.valor_tabela) + 0.005;
 
 const isoDia = (d: Date) => { const p = partesSP(d); return `${p.ano}-${String(p.mes).padStart(2, "0")}-${String(p.dia).padStart(2, "0")}`; };
 const deIso = (s: string, fim = false) => { const [a, m, d] = s.split("-").map(Number); return fim ? dataSP(a, m, d, 23, 59) : dataSP(a, m, d); };
@@ -114,7 +118,7 @@ export default function Corridas() {
 
   const exportar = async () => {
     setExportando(true);
-    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,centro_codigo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_informado,valor_faturado").limit(10000);
+    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,centro_codigo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
     setExportando(false);
     if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
     const linhas = (data ?? []) as any[];
@@ -123,11 +127,13 @@ export default function Corridas() {
       { titulo: "Setor", largura: 14 }, { titulo: "Origem", largura: 36 }, { titulo: "Destino", largura: 36 }, { titulo: "Passageiros", formato: "inteiro", largura: 11 },
       { titulo: "Motivo", largura: 20 }, { titulo: "Centro de custo", largura: 14 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
       { titulo: "Motorista", largura: 18 }, { titulo: "Placa", largura: 10 }, { titulo: "Distância (km)", formato: "decimal", largura: 13 },
+      { titulo: "Valor tabela", formato: "moeda", largura: 13 }, { titulo: "Item da tabela", largura: 34 },
       { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
     ], linhas.map((c) => [
       c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
       c.origem, c.destino, c.qtd_passageiros, c.motivo, c.centro_codigo, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
-      c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km), c.valor_informado == null ? null : Number(c.valor_informado),
+      c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km),
+      c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao, c.valor_informado == null ? null : Number(c.valor_informado),
       c.valor_faturado == null ? null : Number(c.valor_faturado),
     ]));
     avisar(`${linhas.length} corrida(s) exportada(s).`);
@@ -171,7 +177,7 @@ export default function Corridas() {
                   <td className="trajeto">{c.origem}<small>→ {c.destino}</small></td>
                   <td>{c.fornecedor_nome ?? <span className="texto-fraco">—</span>}</td>
                   <td><StatusTag status={c.status} />{["enviada", "sem_resposta"].includes(c.status) && <div><Prazo ate={c.prazo_resposta_em} compacto /></div>}</td>
-                  <td className="num">{brl(c.valor_informado)}</td>
+                  <td className="num">{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">tabela {brl(c.valor_tabela)}</small>}</td>
                 </tr>
               ))}
             </tbody>
@@ -185,7 +191,7 @@ export default function Corridas() {
               <div className="cartao-corrida-trajeto">{c.origem}<small>→ {c.destino}</small></div>
               <div className="cartao-corrida-rodape">
                 <span>{formatarDataHora(c.data_hora_prevista)} · {c.solicitante_nome}</span>
-                <b>{brl(c.valor_informado)}</b>
+                <b>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">tabela {brl(c.valor_tabela)}</small>}</b>
               </div>
               {["enviada", "sem_resposta"].includes(c.status) && <Prazo ate={c.prazo_resposta_em} />}
             </button>
@@ -347,7 +353,8 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado</span>}</dd>
             {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
-            <dt>Valor informado</dt><dd>{brl(c.valor_informado)}{(() => {
+            <dt>Valor da tabela</dt><dd>{c.valor_tabela != null ? <>{brl(c.valor_tabela)}<small className="bloco texto-fraco">{c.preco_descricao}</small></> : <span className="texto-fraco">{c.fornecedor_id ? "Sem valor na tabela deste fornecedor para o local" : "—"}</span>}</dd>
+            <dt>Valor informado</dt><dd>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">{brl(Number(c.valor_informado) - Number(c.valor_tabela))} acima da tabela</small>}{c.valor_tabela == null && (() => {
               const esperado = valorEsperado(c as any, c.fornecedores ? { ...(c.fornecedores as any), id: c.fornecedor_id } : null);
               return esperado != null ? <small className="bloco texto-fraco">Referência pela tarifa: {brl(esperado)}</small> : null;
             })()}</dd>

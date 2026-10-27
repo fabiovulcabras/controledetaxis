@@ -8,10 +8,13 @@ import { useApp } from "@/components/AuthGate";
 import { formatarTelefone } from "@/lib/telefone";
 import { linkWhatsApp, msgLinkPedido } from "@/lib/whatsapp/link";
 import { useRetorno } from "@/components/Retorno";
+import { baixarXlsx } from "@/lib/xlsx";
+import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
+import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "centros" | "unidades" | "locais" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "centros" | "unidades" | "locais" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
-  ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["centros", "Centros de custo"],
+  ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"], ["centros", "Centros de custo"],
   ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
@@ -56,6 +59,8 @@ export default function Cadastros() {
           { key: "bandeirada", label: "Bandeirada (R$)", type: "number", esconderNaTabela: true, ajuda: "Com o valor por km, calcula a tarifa de referência de cada corrida." },
           { key: "valor_km", label: "Valor por km (R$)", type: "number", esconderNaTabela: true, ajuda: "Valor informado acima da referência + tolerancia_trajeto_pct gera alerta." },
         ]} />}
+
+      {aba === "precos" && <TabelaPrecos />}
 
       {aba === "centros" && <Crud key="cc" table="centros_custo" title="Centros de custo" nomeItem="centro de custo" ordem="codigo"
         fields={[
@@ -175,6 +180,80 @@ function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome
         </PainelLateral>
       )}
     </>
+  );
+}
+
+/**
+ * Tabela de preços combinados com cada fornecedor. Fora de Extrema, uma linha por cidade; dentro, por bairro
+ * (linha sem bairro = resto da cidade). O sistema escolhe veículo e modalidade pelos passageiros da corrida.
+ */
+function TabelaPrecos() {
+  const { confirmar, avisar } = useRetorno();
+  const [versao, setVersao] = useState(0);
+  const [ocupado, setOcupado] = useState(false);
+  const [erros, setErros] = useState<string[]>([]);
+
+  const exportar = async () => {
+    const [{ data: linhas, error }, { data: forns }] = await Promise.all([
+      supabase.from("precos_tabela").select("*").order("localidade"),
+      supabase.from("fornecedores").select("id,nome"),
+    ]);
+    if (error) { avisar(error.message, "erro"); return; }
+    const nome = new Map((forns ?? []).map((f) => [f.id, f.nome]));
+    baixarXlsx("tabela-de-precos.xlsx", "Tabela de preços",
+      COLUNAS_PLANILHA.map((t) => ({ titulo: t, largura: t === "Localidade" || t === "Apelidos" ? 26 : t === "Valor" ? 12 : 16, formato: t === "Valor" ? "moeda" as const : undefined })),
+      (linhas ?? []).filter((l) => l.ativo).map((l) => [nome.get(l.fornecedor_id) ?? "", l.localidade, l.cidade, l.uf, l.bairro, l.apelidos,
+        l.modalidade === "qualquer" ? "" : ROTULO_MODALIDADE[l.modalidade as "unico" | "diversos"], ROTULO_VEICULO[l.veiculo as "passeio"], Number(l.valor)]));
+  };
+
+  const importar = async (arquivo: File) => {
+    setErros([]); setOcupado(true);
+    try {
+      const { data: forns } = await supabase.from("fornecedores").select("id,nome");
+      const { itens, erros } = lerTabelaPrecos(await lerPlanilhaXlsx(await arquivo.arrayBuffer()), forns ?? []);
+      if (erros.length) { setErros(erros); return; }
+      if (!itens.length) { setErros(["Nenhuma linha de preço na planilha."]); return; }
+      // Mesma cidade/bairro/modalidade/veículo repetida: vale a última linha
+      const unicos = [...new Map(itens.map((i) => [[i.fornecedor_id, normalizar(i.cidade), normalizar(i.bairro), i.modalidade, i.veiculo].join("|"), i])).values()];
+      const porForn = new Map<string, number>();
+      for (const i of unicos) porForn.set(i.fornecedor_id, (porForn.get(i.fornecedor_id) ?? 0) + 1);
+      const resumo = [...porForn].map(([id, n]) => `${forns?.find((f) => f.id === id)?.nome}: ${n} preço(s)`).join("; ");
+      if (!(await confirmar({ titulo: "Substituir a tabela de preços?", texto: `A tabela atual destes fornecedores será trocada pela da planilha. ${resumo}.`, confirmar: "Substituir" }))) return;
+      const { error: e1 } = await supabase.from("precos_tabela").delete().in("fornecedor_id", [...porForn.keys()]);
+      if (e1) throw new Error(e1.message);
+      const { error: e2 } = await supabase.from("precos_tabela").insert(unicos);
+      if (e2) throw new Error(e2.message);
+      avisar(`Tabela importada: ${resumo}.`);
+      setVersao((v) => v + 1);
+    } catch (e) {
+      setErros([e instanceof Error ? e.message : "Não foi possível importar a planilha."]);
+    } finally { setOcupado(false); }
+  };
+
+  return (
+    <Crud key={`precos-${versao}`} table="precos_tabela" title="Tabela de preços" nomeItem="preço" ordem="localidade"
+      subtitulo="Valores combinados com cada fornecedor. Fora de Extrema, por cidade; dentro, por bairro (sem bairro = resto da cidade). O veículo e o tipo de destino saem dos passageiros: 1 = Passeio, destino único; 2 a 4 = Passeio, diversos destinos; 5 e 6 = Spin; 7 ou mais = Van."
+      aviso={<>
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button type="button" className="ghost" onClick={exportar}>Baixar planilha</button>
+          <label className="ghost botao-arquivo">{ocupado ? "Importando…" : "Importar planilha (.xlsx)"}
+            <input type="file" accept=".xlsx" hidden disabled={ocupado} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void importar(f); }} />
+          </label>
+          <span className="texto-fraco" style={{ fontSize: 13 }}>Para editar em lote: baixe, ajuste no Excel e importe de volta (substitui a tabela dos fornecedores da planilha).</span>
+        </div>
+        {erros.length > 0 && <div className="err">{erros.slice(0, 8).map((e) => <div key={e}>{e}</div>)}{erros.length > 8 && <div>… e mais {erros.length - 8}.</div>}</div>}
+      </>}
+      fields={[
+        { key: "localidade", label: "Localidade", required: true, placeholder: "Toledo - Pereiras", ajuda: "Como aparece na tabela do fornecedor." },
+        { key: "fornecedor_id", label: "Fornecedor", type: "select", required: true, opcoes: { tabela: "fornecedores", rotulo: (r) => r.nome } },
+        { key: "cidade", label: "Cidade", required: true, placeholder: "Toledo" },
+        { key: "bairro", label: "Bairro", placeholder: "Pereiras", ajuda: "Vazio = a cidade toda (em Extrema, vale para os bairros sem linha própria)." },
+        { key: "apelidos", label: "Outros nomes do bairro", esconderNaTabela: true, placeholder: "Bairro dos Pereiras, Pereira", ajuda: "Separados por vírgula; ajudam a reconhecer o endereço." },
+        { key: "uf", label: "UF", esconderNaTabela: true, placeholder: "MG" },
+        { key: "modalidade", label: "Destino", type: "select", required: true, opcoes: { fixas: [{ valor: "unico", rotulo: "Destino único" }, { valor: "diversos", rotulo: "Diversos destinos" }, { valor: "qualquer", rotulo: "Qualquer" }] } },
+        { key: "veiculo", label: "Veículo", type: "select", required: true, opcoes: { fixas: [{ valor: "passeio", rotulo: "Passeio (4 lugares)" }, { valor: "spin", rotulo: "Spin (6 lugares)" }, { valor: "van", rotulo: "Van" }] } },
+        { key: "valor", label: "Valor (R$)", type: "number", required: true, moeda: true },
+      ]} />
   );
 }
 

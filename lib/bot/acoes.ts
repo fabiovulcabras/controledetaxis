@@ -107,7 +107,10 @@ export async function verificarValor(repo: Repo, c: Corrida, valor: number, agor
   const cc = c.centro_custo_id ? await repo.centroCusto(c.centro_custo_id) : null;
   if (cc?.teto_por_corrida && valor > Number(cc.teto_por_corrida)) problemas.push(`valor ${brl(valor)} acima do teto de ${brl(Number(cc.teto_por_corrida))} do ${cc.codigo}`);
   const forn = c.fornecedor_id ? await repo.fornecedor(c.fornecedor_id) : null;
-  const esperado = valorEsperado(c, forn);
+  // Tabela de preços combinada com o fornecedor: valor acima dela é sempre apontado ao planejamento
+  const tabela = await repo.precoTabela(c).catch(() => null);
+  if (tabela && valor > tabela.valor + 0.005) problemas.push(`valor ${brl(valor)} acima da tabela: ${brl(tabela.valor)} (${tabela.descricao})`);
+  const esperado = tabela ? null : valorEsperado(c, forn);
   const tolerancia = await numero(repo, "tolerancia_trajeto_pct", 30);
   if (esperado != null && valor > esperado * (1 + tolerancia / 100)) {
     problemas.push(`valor ${brl(valor)} acima do esperado para ${Number(c.distancia_km).toFixed(1)} km (${brl(esperado)})`);
