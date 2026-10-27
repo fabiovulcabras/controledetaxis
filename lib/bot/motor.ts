@@ -93,7 +93,6 @@ const MENU: Opcao[] = [
 ];
 const OPCOES_QUANDO: Opcao[] = [{ id: "agora", titulo: "Agora" }, { id: "agendar", titulo: "Agendar" }];
 const OPCOES_PAX: Opcao[] = [{ id: "pax:1", titulo: "Só eu" }, { id: "pax:2", titulo: "2 pessoas" }, { id: "pax:3", titulo: "3 ou mais" }];
-const OPCOES_MOTIVO: Opcao[] = [{ id: "motivo:Visita a cliente", titulo: "Visita a cliente" }, { id: "motivo:Viagem / aeroporto", titulo: "Viagem/aeroporto" }, { id: "motivo:Hora extra", titulo: "Hora extra" }];
 const OPCOES_CONFIRMAR: Opcao[] = [{ id: "confirmar", titulo: "Confirmar" }, { id: "corrigir", titulo: "Corrigir" }, { id: "descartar", titulo: "Cancelar" }];
 const OPCOES_MOTIVO_CANCEL: Opcao[] = [{ id: "mc:Não preciso mais", titulo: "Não preciso mais" }, { id: "mc:Mudou o horário", titulo: "Mudou o horário" }, { id: "mc:Outro motivo", titulo: "Outro motivo" }];
 
@@ -172,7 +171,12 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   const pOrigem = () => pLugar("origem");
   const pDestino = () => pLugar("destino");
   const pPax = () => pergunta(tel, "Quantos passageiros?", OPCOES_PAX);
-  const pMotivo = () => pergunta(tel, "Qual o motivo da corrida? Escolha ou escreva.", OPCOES_MOTIVO);
+  // Motivos cadastrados (Cadastros › Motivos): até 3 viram botões; mais que isso, lista (até 10)
+  const opcoesMotivo = async (): Promise<Opcao[]> => (await repo.motivos()).slice(0, 10).map((m) => ({ id: `motivo:${m}`, titulo: m.slice(0, 24) }));
+  const pMotivo = async () => {
+    const op = await opcoesMotivo();
+    return pergunta(tel, "Qual o motivo da corrida? Escolha ou escreva.", op, op.length > 3 ? "Ver motivos" : undefined);
+  };
   const resumo = async (d: Record<string, any>) => {
     return pergunta(tel, [
       "Confira sua solicitação:", "",
@@ -255,7 +259,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       const digitado = Number((e.texto ?? "").replace(/\D/g, ""));
       const qtd = op ? Number(op.split(":")[1]) : Number.isInteger(digitado) && digitado >= 1 && digitado <= 20 ? digitado : 0;
       if (!qtd) return invalida(pPax());
-      if (qtd === 1) return ir("motivo", pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
+      if (qtd === 1) return ir("motivo", await pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
       if (op === "pax:3") return ir("passageiros_qtd", pergunta(tel, "Quantas pessoas no total, contando você?"));
       return ir("passageiros_nomes", pergunta(tel, `Informe o nome ${qtd === 2 ? "do outro passageiro" : "dos outros passageiros"}.`), { qtd_passageiros: qtd });
     }
@@ -263,22 +267,22 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     case "passageiros_qtd": {
       const qtd = Number((e.texto ?? "").replace(/\D/g, ""));
       if (!Number.isInteger(qtd) || qtd < 1 || qtd > 20) return invalida(pergunta(tel, "Envie só o número de pessoas, por exemplo 4."));
-      if (qtd === 1) return ir("motivo", pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
+      if (qtd === 1) return ir("motivo", await pMotivo(), { qtd_passageiros: 1, outros_passageiros: null });
       return ir("passageiros_nomes", pergunta(tel, "Informe o nome dos outros passageiros."), { qtd_passageiros: qtd });
     }
 
     case "passageiros_nomes": {
       if ((e.texto ?? "").length < 2) return invalida(pergunta(tel, "Escreva o nome dos outros passageiros."));
-      return ir("motivo", pMotivo(), { outros_passageiros: e.texto });
+      return ir("motivo", await pMotivo(), { outros_passageiros: e.texto });
     }
 
     case "centro_custo": // conversa antiga, de antes de o centro de custo sair do pedido
-      return ir("motivo", pMotivo());
+      return ir("motivo", await pMotivo());
 
     case "motivo": {
-      const op = escolha(e, OPCOES_MOTIVO);
+      const op = escolha(e, await opcoesMotivo());
       const motivo = op ? op.slice("motivo:".length) : (e.texto ?? "").length >= 3 && !e.botaoId ? e.texto! : null;
-      if (!motivo) return invalida(pMotivo());
+      if (!motivo) return invalida(await pMotivo());
       const novos = { ...dados, motivo };
       return ir("confirmar", await resumo(novos), { motivo });
     }

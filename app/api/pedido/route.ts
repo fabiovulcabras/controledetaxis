@@ -11,7 +11,6 @@ import { locaisDoPedido } from "@/lib/locais";
 import type { Corrida } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
-const MOTIVOS = ["Visita a cliente", "Viagem / aeroporto", "Hora extra", "Visita a fornecedor"];
 const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** Endereços que a pessoa mais usa (origens e destinos das últimas corridas), sem repetir. */
@@ -48,7 +47,7 @@ export async function GET(req: Request) {
     return Response.json({
       nome: sol.nome,
       locais,
-      motivos: MOTIVOS,
+      motivos: await repo.motivos(),
       max_dias: maxDias,
       frequentes: frequentes(lista),
       corridas: lista.slice(0, 10).map((c: any) => ({

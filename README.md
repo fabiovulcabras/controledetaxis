@@ -27,11 +27,11 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 | Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
 | Portais dos fornecedores | planejamento | Link fixo do portal de cada fornecedor: enviar pelo WhatsApp, copiar, abrir ou gerar novo |
 | Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
-| Cadastros | admin | Pessoas autorizadas, fornecedores, tabela de preços, unidades, locais frequentes, parâmetros e usuários do painel |
+| Cadastros | admin | Pessoas autorizadas, fornecedores, tabela de preços, unidades, locais frequentes, motivos de corrida, parâmetros e usuários do painel |
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`, `supabase/009_relatorios.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`, `supabase/009_relatorios.sql`, `supabase/010_motivos.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`

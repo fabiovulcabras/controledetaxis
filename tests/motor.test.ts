@@ -809,3 +809,21 @@ describe("valor de tabela no envio", () => {
     expect((await c.repo.precoTabela(corrida))?.valor).toBe(50);
   });
 });
+
+describe("motivos cadastráveis", () => {
+  it("o bot oferece os motivos cadastrados; com mais de 3, vira lista", async () => {
+    const c = conversa();
+    c.repo.listaMotivos = ["Hora extra", "Visita a fornecedor", "Consulta médica", "Treinamento"];
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, texto: "Rodoviária Tietê" });
+    const s = await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    const p = ultima(s, ANA);
+    expect(p.opcoes?.map((o) => o.titulo)).toEqual(["Hora extra", "Visita a fornecedor", "Consulta médica", "Treinamento"]);
+    expect(p.rotuloLista).toBe("Ver motivos");
+    const r = await c.enviar({ telefone: ANA, texto: "2" });
+    expect(r[0].texto).toContain("Motivo: Visita a fornecedor");
+  });
+});

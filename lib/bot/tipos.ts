@@ -86,6 +86,8 @@ export interface Repo {
   /** Unidades ativas com endereço e locais frequentes ativos, por nome. */
   locaisCadastrados(): Promise<LocalCadastrado[]>;
   parametro(chave: string): Promise<string | null>;
+  /** Motivos de corrida ativos (Cadastros › Motivos), na ordem cadastrada. */
+  motivos(): Promise<string[]>;
 
   conversa(telefone: string): Promise<Conversa | null>;
   salvarConversa(telefone: string, etapa: string, dados: Record<string, any>, agora: Date): Promise<void>;

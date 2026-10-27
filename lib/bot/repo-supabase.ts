@@ -6,6 +6,9 @@ import { inicioDoMesSP } from "../datas";
 import { escolherPrecoTrecho, pontasDoPreco, type LinhaPreco, type Onde } from "../precos";
 import { localidadePorCoordenadas, localidadePorTexto } from "../endereco";
 
+/** Motivos usados enquanto a tabela de motivos não existe. */
+export const MOTIVOS_PADRAO = ["Visita a cliente", "Viagem / aeroporto", "Hora extra"];
+
 const falhar = (contexto: string, error: { message: string } | null) => {
   if (error) throw new Error(`${contexto}: ${error.message}`);
 };
@@ -105,6 +108,15 @@ export class RepoSupabase implements Repo {
     return (data ?? []) as Fornecedor[];
   }
 
+  async motivos(): Promise<string[]> {
+    const chave = "motivos";
+    if (!this.cache.has(chave)) {
+      this.cache.set(chave, Promise.resolve(this.db.from("motivos").select("nome").eq("ativo", true).order("ordem").order("nome"))
+        // Sem a migração 010 (ou sem nenhum ativo), usa os motivos de antes
+        .then(({ data, error }) => (error || !data?.length ? MOTIVOS_PADRAO : data.map((m: any) => String(m.nome)))));
+    }
+    return this.cache.get(chave)!;
+  }
   async parametro(chave: string) {
     let params = this.cacheParametros;
     if (!params) {

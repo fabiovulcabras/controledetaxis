@@ -12,6 +12,7 @@ export class RepoMemoria implements Repo {
   locais: LocalCadastrado[] = [];
   precos: LinhaPreco[] = [];
   parametros: Record<string, string> = {};
+  listaMotivos = ["Visita a cliente", "Viagem / aeroporto", "Hora extra"];
   conversas = new Map<string, Conversa>();
   corridas: Corrida[] = [];
   eventos: { corrida_id: string; de: StatusCorrida | null; para: StatusCorrida; origem: OrigemEvento; obs?: string | null }[] = [];
@@ -44,6 +45,7 @@ export class RepoMemoria implements Repo {
     ];
   }
   async parametro(chave: string) { return this.parametros[chave] ?? null; }
+  async motivos() { return this.listaMotivos; }
 
   async conversa(t: string) { return this.conversas.get(t) ?? null; }
   async salvarConversa(t: string, etapa: string, dados: Record<string, any>, agora: Date) {

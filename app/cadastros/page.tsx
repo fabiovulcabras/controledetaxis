@@ -12,10 +12,10 @@ import { baixarXlsx } from "@/lib/xlsx";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
   ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"],
-  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
+  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
 export default function Cadastros() {
@@ -72,6 +72,13 @@ export default function Cadastros() {
         fields={[
           { key: "nome", label: "Nome", required: true, unico: true, placeholder: "Pronto Socorro Municipal" },
           { key: "endereco", label: "Endereço", required: true, largo: true, placeholder: "Rua, número, bairro, cidade - UF", ajuda: "Com número e cidade, para o mapa achar o lugar certo." },
+        ]} />}
+
+      {aba === "motivos" && <Crud key="mot" table="motivos" title="Motivos de corrida" nomeItem="motivo" ordem="ordem"
+        subtitulo="Opções que a pessoa escolhe ao pedir o táxi, no bot e na página de pedido. Desative os que não se aplicam; a pessoa ainda pode escrever outro motivo."
+        fields={[
+          { key: "nome", label: "Motivo", required: true, unico: true, placeholder: "Visita a fornecedor" },
+          { key: "ordem", label: "Ordem", type: "number", ajuda: "Menor aparece primeiro. No WhatsApp, até 3 motivos viram botões; com mais, viram uma lista (até 10)." },
         ]} />}
 
       {aba === "parametros" && <Parametros />}
