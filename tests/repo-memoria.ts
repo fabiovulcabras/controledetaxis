@@ -32,8 +32,10 @@ export class RepoMemoria implements Repo {
     const p = c.fornecedor_id ? this.precoPara(c.fornecedor_id, c) : null;
     return p ? { valor: p.valor, descricao: p.descricao } : null;
   }
-  async fornecedorAtende(fornecedorId: string, c: Corrida) {
-    return !this.precos.some((l) => l.fornecedor_id === fornecedorId) || !!this.precoPara(fornecedorId, c);
+  async cotacao(fornecedorId: string, c: Corrida) {
+    if (!this.precos.some((l) => l.fornecedor_id === fornecedorId)) return { atende: true, valor: null };
+    const p = this.precoPara(fornecedorId, c);
+    return { atende: !!p, valor: p?.valor ?? null };
   }
   async locaisCadastrados() {
     return [

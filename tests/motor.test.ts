@@ -762,3 +762,33 @@ describe("tabela de preços", () => {
     ]);
   });
 });
+
+describe("fornecedor mais barato", () => {
+  const P = (forn: string, cidade: string, valor: number, veiculo: LinhaPreco["veiculo"] = "passeio"): LinhaPreco =>
+    ({ id: `${forn}-${cidade}-${veiculo}`, fornecedor_id: forn, localidade: cidade, cidade, bairro: null, modalidade: "qualquer", veiculo, valor });
+
+  it("a corrida vai ao mais barato, mesmo que não seja o padrão da pessoa; recusa passa ao próximo mais barato", async () => {
+    const c = conversa();
+    c.repo.parametros.reenvio_automatico = "sim";
+    c.repo.precos.push(P("f1", "Guarulhos", 450), P("f2", "Guarulhos", 410)); // f1 é o padrão da Ana, mas f2 é mais barato
+    await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f2");
+    await c.enviar({ telefone: "5511900000102", botaoId: "RECUSAR:TX-2026-00001" });
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f1");
+    expect(c.repo.corridas[0].status).toBe("enviada");
+  });
+
+  it("preço igual: vale o fornecedor padrão da pessoa", async () => {
+    const c = conversa();
+    c.repo.precos.push(P("f1", "Guarulhos", 410), P("f2", "Guarulhos", 410));
+    await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f1");
+  });
+
+  it("quem tem preço vem antes de quem não tem tabela", async () => {
+    const c = conversa();
+    c.repo.precos.push(P("f2", "Guarulhos", 900));
+    await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].fornecedor_id).toBe("f2");
+  });
+});

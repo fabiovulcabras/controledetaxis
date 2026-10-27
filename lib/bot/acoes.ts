@@ -41,25 +41,36 @@ export async function avisarSolicitante(repo: Repo, c: Corrida, texto: string, r
   return [{ para: sol.telefone_whatsapp, texto, corridaId: c.id, template: { nome: "atualizacao_corrida_solicitante", parametros: [c.protocolo, resumo] } }];
 }
 
-/** Fornecedores ativos que atendem o trecho (com tabela de preços, só onde há preço), pela prioridade. */
-async function quemAtende(repo: Repo, c: Corrida | null, excluir: Set<string> = new Set()): Promise<Fornecedor[]> {
-  const ativos = (await repo.fornecedoresAtivos()).filter((f) => !excluir.has(f.id)).sort((a, b) => a.prioridade - b.prioridade);
-  if (!c) return ativos;
-  const atende: Fornecedor[] = [];
-  for (const f of ativos) if (await repo.fornecedorAtende(f.id, c).catch(() => true)) atende.push(f);
-  return atende;
+/**
+ * Fila de fornecedores para o trecho, do mais barato ao mais caro pela tabela de preços de cada um.
+ * Quem tem tabela sem preço para o trecho não atende e fica fora. Quem não tem tabela atende com preço desconhecido
+ * e vai para o fim. Empate de preço: o fornecedor padrão da pessoa; depois a ordem antiga de cadastro e o nome.
+ */
+export async function filaPorPreco(repo: Repo, c: Corrida, excluir: Set<string> = new Set(), padraoId?: string | null): Promise<{ fornecedor: Fornecedor; valor: number | null }[]> {
+  const fila: { fornecedor: Fornecedor; valor: number | null }[] = [];
+  for (const f of (await repo.fornecedoresAtivos()).filter((x) => !excluir.has(x.id))) {
+    const cot = await repo.cotacao(f.id, c).catch(() => ({ atende: true, valor: null }));
+    if (cot.atende) fila.push({ fornecedor: f, valor: cot.valor });
+  }
+  const custo = (v: number | null) => (v == null ? Number.POSITIVE_INFINITY : v);
+  return fila.sort((a, b) => custo(a.valor) - custo(b.valor)
+    || Number(b.fornecedor.id === padraoId) - Number(a.fornecedor.id === padraoId)
+    || (a.fornecedor.prioridade ?? 1) - (b.fornecedor.prioridade ?? 1) // campo antigo, só para desempate
+    || a.fornecedor.nome.localeCompare(b.fornecedor.nome, "pt-BR"));
 }
 
 /**
- * Escolhe o fornecedor: o padrão do solicitante, senão o ativo de maior prioridade. Com a corrida informada,
- * pula quem não atende o trecho (fornecedor com tabela de preços sem valor para aquele local).
+ * Escolhe o fornecedor da corrida: o mais barato que atende o trecho (tabela de preços).
+ * O fornecedor padrão da pessoa só desempata preços iguais, ou vale quando ninguém tem preço para o trecho.
+ * Sem a corrida (chamadas antigas), usa o padrão e depois a ordem de cadastro.
  */
 export async function escolherFornecedor(repo: Repo, fornecedorPadraoId?: string | null, c: Corrida | null = null): Promise<Fornecedor | null> {
+  if (c) return (await filaPorPreco(repo, c, new Set(), fornecedorPadraoId))[0]?.fornecedor ?? null;
   if (fornecedorPadraoId) {
     const f = await repo.fornecedor(fornecedorPadraoId);
-    if (f?.ativo && (!c || await repo.fornecedorAtende(f.id, c).catch(() => true))) return f;
+    if (f?.ativo) return f;
   }
-  return (await quemAtende(repo, c))[0] ?? null;
+  return (await repo.fornecedoresAtivos()).sort((a, b) => a.prioridade - b.prioridade)[0] ?? null;
 }
 
 /** Envia a corrida ao fornecedor (status Enviada, prazo de resposta) e monta o modelo com os botões Aceitar/Recusar. */
@@ -88,10 +99,10 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
   };
 }
 
-/** Próximo fornecedor ativo, pela prioridade, que ainda não recebeu esta corrida e atende o trecho. */
+/** Próximo da fila: o mais barato que ainda não recebeu esta corrida e atende o trecho. */
 export async function proximoFornecedor(repo: Repo, c: Corrida): Promise<Fornecedor | null> {
   const tentados = new Set([...(c.fornecedores_tentados ?? []), ...(c.fornecedor_id ? [c.fornecedor_id] : [])]);
-  return (await quemAtende(repo, c, tentados))[0] ?? null;
+  return (await filaPorPreco(repo, c, tentados))[0]?.fornecedor ?? null;
 }
 
 /**

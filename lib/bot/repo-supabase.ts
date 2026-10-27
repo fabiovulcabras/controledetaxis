@@ -51,10 +51,11 @@ export class RepoSupabase implements Repo {
     Object.assign(c, campos);
     return p ? { valor: p.valor, descricao: p.descricao } : null;
   }
-  async fornecedorAtende(fornecedorId: string, c: Corrida): Promise<boolean> {
+  async cotacao(fornecedorId: string, c: Corrida): Promise<{ atende: boolean; valor: number | null }> {
     const linhas = await this.linhasPreco(fornecedorId);
-    if (!linhas.length) return true;
-    return !!escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
+    if (!linhas.length) return { atende: true, valor: null };
+    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
+    return { atende: !!p, valor: p?.valor ?? null };
   }
   private linhasPreco(fornecedorId: string): Promise<LinhaPreco[]> {
     const chave = `precos:${fornecedorId}`;

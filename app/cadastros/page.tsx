@@ -43,18 +43,17 @@ export default function Cadastros() {
           { key: "email", label: "E-mail", type: "email", esconderNaTabela: true },
           { key: "unidade_id", label: "Unidade", type: "select", opcoes: { tabela: "unidades", rotulo: (r) => r.nome } },
           { key: "centro_custo_padrao_id", label: "Centro de custo padrão", type: "select", opcoes: { tabela: "centros_custo", rotulo: (r) => `${r.codigo} · ${r.descricao}` } },
-          { key: "fornecedor_padrao_id", label: "Fornecedor padrão", type: "select", opcoes: { tabela: "fornecedores", rotulo: (r) => r.nome }, ajuda: "Vazio: usa o fornecedor ativo de maior prioridade." },
+          { key: "fornecedor_padrao_id", label: "Fornecedor padrão", type: "select", opcoes: { tabela: "fornecedores", rotulo: (r) => r.nome }, ajuda: "A corrida vai sempre ao fornecedor mais barato para o trecho. O padrão só desempata preços iguais ou vale onde ninguém tem preço na tabela." },
           { key: "limite_mensal", label: "Limite mensal (R$)", type: "number", esconderNaTabela: true, ajuda: "Gasto acima disso no mês gera alerta ao planejamento. Vazio: sem limite." },
         ]} />}
 
-      {aba === "fornecedores" && <Crud key="forn" table="fornecedores" title="Fornecedores" nomeItem="fornecedor" ordem="prioridade"
-        subtitulo="Recebem as corridas pelo WhatsApp. Pelo “Link do portal” o fornecedor vê todas as corridas dele num só lugar."
+      {aba === "fornecedores" && <Crud key="forn" table="fornecedores" title="Fornecedores" nomeItem="fornecedor" ordem="nome"
+        subtitulo="Recebem as corridas pelo WhatsApp. Cada corrida vai ao fornecedor mais barato para o trecho (Tabela de preços); se ele recusar ou não responder, ao próximo mais barato."
         acoesExtras={(r, recarregar) => r.ativo ? <LinkPortal fornecedor={r} recarregar={recarregar} /> : null}
         fields={[
           { key: "nome", label: "Nome", required: true },
           { key: "telefone_whatsapp", label: "WhatsApp que recebe as corridas", required: true, mascara: "whatsapp", unico: true, placeholder: "(11) 3333-4444" },
           { key: "cnpj", label: "CNPJ", mascara: "cnpj" },
-          { key: "prioridade", label: "Prioridade", type: "number", required: true, ajuda: "1 = primeira opção quando o solicitante não tem fornecedor padrão." },
           { key: "prazo_resposta_min", label: "Prazo para responder (min)", type: "number", required: true, ajuda: "Corridas imediatas. Agendadas usam o parâmetro prazo_agendada_min." },
           { key: "bandeirada", label: "Bandeirada (R$)", type: "number", esconderNaTabela: true, ajuda: "Com o valor por km, calcula a tarifa de referência de cada corrida." },
           { key: "valor_km", label: "Valor por km (R$)", type: "number", esconderNaTabela: true, ajuda: "Valor informado acima da referência + tolerancia_trajeto_pct gera alerta." },

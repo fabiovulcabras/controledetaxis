@@ -19,7 +19,7 @@ export default function Portais() {
   const base = typeof window !== "undefined" ? window.location.origin : "";
 
   const carregar = async () => {
-    const { data, error } = await supabase.from("fornecedores").select("*").eq("ativo", true).order("prioridade");
+    const { data, error } = await supabase.from("fornecedores").select("*").eq("ativo", true).order("nome");
     setErr(error ? error.message : "");
     setLista((data ?? []) as Forn[]);
     setCarregado(true);

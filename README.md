@@ -91,7 +91,7 @@ A Evolution API conecta um número comum de WhatsApp pelo WhatsApp Web (lendo um
 
 Como não há botões, as opções saem numeradas ("*1* – Aceitar", "*2* – Recusar") e a resposta "1" vira a opção correspondente da última mensagem enviada àquele número.
 
-Fluxo: a pessoa autorizada conversa com o bot → a corrida é gravada e enviada ao **1º fornecedor da fila** (o padrão da pessoa; depois os ativos por prioridade) → o prazo é agendado no QStash → "1" aceita (o solicitante recebe a confirmação com os dados do motorista), "2" recusa e passa ao próximo; sem resposta no prazo, o fornecedor perde a vez e a corrida vai ao próximo. Sem ninguém na fila, o planejamento é alertado. Cada envio fica em `corrida_tentativas` (ordem, prazo, resultado). O prazo é o "Prazo para responder" de cada fornecedor em Cadastros (ex.: 5 min).
+Fluxo: a pessoa autorizada conversa com o bot → a corrida é gravada e enviada ao **fornecedor mais barato para o trecho** (pela Tabela de preços; quem não tem preço para o trecho fica fora) → o prazo é agendado no QStash → "1" aceita (o solicitante recebe a confirmação com os dados do motorista), "2" recusa e passa ao próximo; sem resposta no prazo, o fornecedor perde a vez e a corrida vai ao próximo. Sem ninguém na fila, o planejamento é alertado. Cada envio fica em `corrida_tentativas` (ordem, prazo, resultado). O prazo é o "Prazo para responder" de cada fornecedor em Cadastros (ex.: 5 min).
 
 ## Prazos pelo Upstash QStash
 
@@ -143,7 +143,7 @@ tests/                   testes do motor do bot
 - Só números cadastrados e ativos em Pessoas autorizadas pedem táxi. Número desconhecido recebe recusa e o planejamento é avisado (no máximo uma vez por dia por número).
 - O WhatsApp às vezes entrega celulares brasileiros sem o nono dígito; a busca considera as duas formas.
 - Conversa parada por mais de `conversa_expira_min` minutos é descartada. Três respostas não entendidas voltam ao menu.
-- Fornecedor: o padrão da pessoa autorizada; sem padrão, o ativo de menor número em Prioridade.
+- Fornecedor: o mais barato para o trecho pela Tabela de preços. Recusa ou falta de resposta passa ao próximo mais barato. Quem tem tabela sem preço para o trecho não recebe; quem não tem tabela entra no fim da fila. O fornecedor padrão da pessoa só desempata preços iguais.
 - Prazo de resposta: o do fornecedor para corridas imediatas; `prazo_agendada_min` para agendadas. O fornecedor ainda pode aceitar depois do prazo, e o planejamento é avisado.
 - Valor acima do teto do centro de custo gera alerta. Também geram alerta: valor acima da tarifa de referência do fornecedor (`bandeirada` + `valor_km` × distância, mais `tolerancia_trajeto_pct`) e gasto da pessoa acima do `limite_mensal` dela.
 - Só o fornecedor responde: o link `/f/…` da corrida passa pelo WhatsApp do solicitante, então sozinho ele só mostra a corrida. Aceitar, recusar, informar valor ou marcar como não realizada exige o aparelho identificado, abrindo o portal do fornecedor ou digitando o código de acesso de 6 dígitos (tela Portais dos fornecedores). Gerar novo link do portal desliga os aparelhos já identificados.
