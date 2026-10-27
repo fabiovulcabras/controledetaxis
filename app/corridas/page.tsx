@@ -22,7 +22,7 @@ type Corrida = {
   motorista: string | null; veiculo_placa: string | null; eta_minutos: number | null;
   valor_informado: number | null; valor_faturado: number | null; prazo_resposta_em: string | null;
   motivo_recusa: string | null; motivo_cancelamento: string | null; distancia_km?: number | null;
-  valor_tabela?: number | null; preco_descricao?: string | null;
+  valor_tabela?: number | null; preco_descricao?: string | null; preco_calculado_em?: string | null;
   solicitante_id: string; fornecedor_id: string | null;
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
   fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
@@ -251,7 +251,9 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
     try {
       const r = await chamarApi("/api/corridas/acao", { corridaId: id, acao: nome, obs, ...extra });
       setLinks(r.links ?? []);
-      setOk(r.mensagens ? `Feito. ${r.mensagens} mensagem(ns) enviada(s).` : r.links?.length ? "Feito. Avise pelo WhatsApp com os botões abaixo." : "Feito.");
+      setOk(nome === "recalcular_preco"
+        ? (r.valor_tabela != null ? `Valor da tabela: ${brl(r.valor_tabela)} (${r.descricao}).` : "Nenhum valor encontrado: confira se este fornecedor tem linha para a cidade/bairro do trecho em Cadastros › Tabela de preços.")
+        : r.mensagens ? `Feito. ${r.mensagens} mensagem(ns) enviada(s).` : r.links?.length ? "Feito. Avise pelo WhatsApp com os botões abaixo." : "Feito.");
       setAcao(null); setObs(""); setValor("");
       await carregar(); onMudou();
     } catch (e) {
@@ -351,7 +353,8 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado</span>}</dd>
             {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
-            <dt>Valor da tabela</dt><dd>{c.valor_tabela != null ? <>{brl(c.valor_tabela)}<small className="bloco texto-fraco">{c.preco_descricao}</small></> : <span className="texto-fraco">{c.fornecedor_id ? "Sem valor na tabela deste fornecedor para o local" : "—"}</span>}</dd>
+            <dt>Valor da tabela</dt><dd>{c.valor_tabela != null ? <>{brl(c.valor_tabela)}<small className="bloco texto-fraco">{c.preco_descricao}</small></> : <span className="texto-fraco">{!c.fornecedor_id ? "—" : c.preco_calculado_em ? "Este fornecedor não tem valor na tabela para o trecho" : "Ainda não calculado"}</span>}
+              {c.fornecedor_id && podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={() => executar("recalcular_preco")}>Recalcular pela tabela de preços</button>}</dd>
             <dt>Valor informado</dt><dd>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">{brl(Number(c.valor_informado) - Number(c.valor_tabela))} acima da tabela</small>}{c.valor_tabela == null && (() => {
               const esperado = valorEsperado(c as any, c.fornecedores ? { ...(c.fornecedores as any), id: c.fornecedor_id } : null);
               return esperado != null ? <small className="bloco texto-fraco">Referência pela tarifa: {brl(esperado)}</small> : null;

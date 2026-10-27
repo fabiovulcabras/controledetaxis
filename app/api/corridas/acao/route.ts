@@ -9,7 +9,7 @@ import type { Saida } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
 
-type Acao = "validar" | "contestar" | "reabrir" | "cancelar" | "reenviar" | "ajustar_valor";
+type Acao = "validar" | "contestar" | "reabrir" | "cancelar" | "reenviar" | "ajustar_valor" | "recalcular_preco";
 
 /**
  * Ações do planejamento sobre uma corrida. A mudança é feita com a sessão do usuário
@@ -61,6 +61,15 @@ export async function POST(req: Request) {
         if (!obs) return erroJson("Informe o motivo do ajuste.");
         await repo.mudarStatus(c.id, null, "planejamento", `Valor ajustado de ${brl(c.valor_informado)} para ${brl(valor)}: ${obs}`, { valor_informado: valor });
         break;
+      }
+      case "recalcular_preco": {
+        // Recalcula o valor da tabela (ex.: depois de importar a tabela de preços). Grava com a chave do servidor.
+        if (!c.fornecedor_id) return erroJson("A corrida ainda não tem fornecedor.");
+        const admin = new RepoSupabase(supabaseAdmin());
+        const atual = await admin.corrida(c.id);
+        if (!atual) return erroJson("Corrida não encontrada.", 404);
+        const p = await admin.precoTabela({ ...atual, preco_calculado_em: null });
+        return Response.json({ ok: true, mensagens: 0, links: [], valor_tabela: p?.valor ?? null, descricao: p?.descricao ?? null });
       }
       default:
         return erroJson("Ação desconhecida.");

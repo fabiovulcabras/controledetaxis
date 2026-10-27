@@ -84,6 +84,8 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
     fornecedor_id: forn.id, prazo_resposta_em: prazo.toISOString(), fornecedores_tentados: tentados,
     ...(trocou ? { token_fornecedor: novoToken() } : {}),
   });
+  // Valor da tabela do fornecedor para o trecho: calculado e gravado já no envio (aparece no painel na hora)
+  await repo.precoTabela(atual).catch(() => null);
   const sol = await repo.solicitante(c.solicitante_id);
   const parametros = [
     c.protocolo, sol?.nome ?? "-", c.tipo === "imediata" ? `agora (${formatarHora(c.data_hora_prevista)})` : formatarDataHora(c.data_hora_prevista),

@@ -789,3 +789,23 @@ describe("números do relatório", () => {
     expect(taxaAceite(2, 3)).toBe(67);
   });
 });
+
+describe("valor de tabela no envio", () => {
+  it("corrida de unidade para unidade em Extrema usa o valor de Extrema", async () => {
+    const c = conversa();
+    c.repo.unidades[0].nome = "CD Extrema";
+    c.repo.unidades[0].endereco_padrao = "Estrada Municipal Luiz Lopes Neto, 21, Galpão C - Módulo 4, Extrema - MG";
+    c.repo.precos.push({ id: "e1", fornecedor_id: "f1", localidade: "Extrema (Central) - MG", cidade: "Extrema", bairro: null, modalidade: "qualquer", veiculo: "passeio", valor: 50 });
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, botaoId: "destino_unidade" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    await c.enviar({ telefone: ANA, botaoId: "motivo:Hora extra" });
+    await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    const corrida = c.repo.corridas[0];
+    expect(corrida.fornecedor_id).toBe("f1");
+    expect((await c.repo.precoTabela(corrida))?.valor).toBe(50);
+  });
+});
