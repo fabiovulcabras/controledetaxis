@@ -1,3 +1,4 @@
+import { formatarPlaca, textoChegada } from "../motorista";
 import type { Corrida } from "../bot/tipos";
 import { brl, formatarDataHora, formatarHora } from "../datas";
 import { normalizarTelefone } from "../telefone";
@@ -36,8 +37,9 @@ export function msgNovaCorridaFornecedor(c: Corrida, solicitante: string, base: 
   ].join("\n");
 }
 
-export function msgAceitaSolicitante(c: Corrida, fornecedor: string, base: string, tokenPedido?: string): string {
-  const motorista = [c.motorista, c.veiculo_placa ? `placa ${c.veiculo_placa}` : null, c.eta_minutos ? `chega em cerca de ${c.eta_minutos} min` : null].filter(Boolean).join(", ");
+export function msgAceitaSolicitante(c: Corrida, fornecedor: string, base: string, tokenPedido?: string, agora = new Date()): string {
+  const chegada = c.eta_minutos != null ? textoChegada(new Date(agora.getTime() + c.eta_minutos * 60_000), agora) : null;
+  const motorista = [c.motorista, c.veiculo_placa ? `placa ${formatarPlaca(c.veiculo_placa)}` : null, chegada].filter(Boolean).join(", ");
   return [
     `Sua corrida ${c.protocolo} foi aceita por ${fornecedor}.`,
     motorista ? `Motorista: ${motorista}.` : null,

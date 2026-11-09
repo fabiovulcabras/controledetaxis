@@ -5,6 +5,7 @@ import BrandMark from "@/components/BrandMark";
 import { Campo } from "@/components/Formulario";
 import { brl } from "@/lib/datas";
 import Prazo from "@/components/Prazo";
+import { placaValida } from "@/lib/motorista";
 
 type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
@@ -22,7 +23,7 @@ export default function RespostaFornecedor() {
   const [c, setC] = useState<Corrida | null>(null);
   const [erroLink, setErroLink] = useState("");
   const [tela, setTela] = useState<Tela>(null);
-  const [form, setForm] = useState({ motorista: "", placa: "", minutos: "", motivo: "", valor: "" });
+  const [form, setForm] = useState({ motorista: "", placa: "", chegada: "", motivo: "", valor: "" });
   const [ocupado, setOcupado] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
@@ -56,6 +57,13 @@ export default function RespostaFornecedor() {
     setCodigo(""); setOk("Aparelho identificado. Agora você pode responder as corridas por aqui.");
     await carregar();
   };
+  const placaOk = !!placaValida(form.placa);
+  const faltam = (() => {
+    const m = form.chegada.match(/^(\d{2}):(\d{2})$/);
+    if (!m) return null;
+    const alvo = new Date(); alvo.setHours(Number(m[1]), Number(m[2]), 0, 0);
+    return Math.round((alvo.getTime() - Date.now()) / 60_000);
+  })();
   const campo = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
 
   if (erroLink) return <Moldura><section className="card"><h2>Link indisponível</h2><p className="err">{erroLink}</p></section></Moldura>;
@@ -113,13 +121,18 @@ export default function RespostaFornecedor() {
       )}
 
       {tela === "aceitar" && (
-        <form className="card" onSubmit={(e) => { e.preventDefault(); void agir("aceitar", { motorista: form.motorista, placa: form.placa, minutos: Number(form.minutos) }, "Corrida aceita."); }}>
+        <form className="card" onSubmit={(e) => { e.preventDefault(); void agir("aceitar", { motorista: form.motorista, placa: form.placa, chegada: form.chegada }, "Corrida confirmada."); }}>
           <h3 style={{ marginTop: 0 }}>Quem vai atender?</h3>
           <div style={{ display: "grid", gap: 12 }}>
-            <Campo rotulo="Motorista" obrigatorio><input value={form.motorista} onChange={campo("motorista")} autoFocus /></Campo>
-            <Campo rotulo="Placa"><input value={form.placa} onChange={campo("placa")} placeholder="ABC1D23" autoCapitalize="characters" /></Campo>
-            <Campo rotulo="Chega em quantos minutos?"><input inputMode="numeric" value={form.minutos} onChange={campo("minutos")} /></Campo>
-            <button className="pri botao-grande" disabled={ocupado || form.motorista.trim().length < 2}>{ocupado ? "Registrando…" : "Confirmar aceite"}</button>
+            <p className="pagina-sub" style={{ margin: 0 }}>A corrida só fica confirmada com os três dados.</p>
+            <Campo rotulo="Nome do motorista" obrigatorio><input value={form.motorista} onChange={campo("motorista")} autoFocus autoComplete="name" /></Campo>
+            <Campo rotulo="Placa do carro" obrigatorio ajuda={form.placa && !placaOk ? "Use o padrão antigo (ABC1234) ou Mercosul (ABC1D23)." : "7 caracteres: ABC1234 ou ABC1D23."}>
+              <input value={form.placa} onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })} placeholder="ABC1D23" autoCapitalize="characters" maxLength={8} aria-invalid={!!form.placa && !placaOk} />
+            </Campo>
+            <Campo rotulo="Horário de chegada" obrigatorio ajuda={faltam != null ? (faltam < 0 ? "Esse horário já passou." : `Chega em ${faltam} min.`) : "Ex.: 17:30"}>
+              <input type="time" value={form.chegada} onChange={campo("chegada")} />
+            </Campo>
+            <button className="pri botao-grande" disabled={ocupado || form.motorista.trim().length < 2 || !placaOk || !form.chegada}>{ocupado ? "Registrando…" : "Confirmar corrida"}</button>
             <button type="button" className="ghost" onClick={() => setTela(null)}>Voltar</button>
           </div>
         </form>

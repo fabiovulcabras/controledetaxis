@@ -1,4 +1,5 @@
 "use client";
+import { formatarPlaca } from "@/lib/motorista";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
@@ -351,7 +352,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Passageiros</dt><dd>{c.qtd_passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
             <dt>Motivo</dt><dd>{c.motivo}</dd>
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
-            <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado</span>}</dd>
+            <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa ? formatarPlaca(c.veiculo_placa) : null, c.eta_minutos != null ? `chegada em ${c.eta_minutos} min após o aceite` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado (a corrida só é confirmada com motorista, placa e horário)</span>}</dd>
             {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
             <dt>Valor da tabela</dt><dd>{c.valor_tabela != null ? <>{brl(c.valor_tabela)}<small className="bloco texto-fraco">{c.preco_descricao}</small></> : <span className="texto-fraco">{!c.fornecedor_id ? "—" : c.preco_calculado_em ? "Este fornecedor não tem valor na tabela para o trecho" : "Ainda não calculado"}</span>}
               {c.fornecedor_id && podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={() => executar("recalcular_preco")}>Recalcular pela tabela de preços</button>}</dd>

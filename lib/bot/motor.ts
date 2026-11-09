@@ -1,3 +1,4 @@
+import { formatarHora, formatarPlaca, lerDadosMotorista, textoChegada } from "../motorista";
 import type { Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
 import { CANCELAVEIS, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
@@ -388,12 +389,10 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
 
     if (acao === "ACEITAR") {
       if (!["enviada", "sem_resposta"].includes(c.status)) return [responder(`A corrida ${c.protocolo} já está como "${STATUS[c.status].rotulo}".`)];
-      const atrasado = c.status === "sem_resposta";
-      const atual = await repo.mudarStatus(c.id, "aceita", "fornecedor", atrasado ? "Aceita depois do prazo" : "Aceita pelo fornecedor");
+      // A corrida só fica aceita quando chegarem motorista, placa e horário de chegada (próxima mensagem)
       await repo.salvarConversa(tel, "motorista", { corrida_id: c.id }, agora);
-      const saidas: Saida[] = [responder(`Corrida ${c.protocolo} aceita. Informe motorista, placa e previsão de chegada em uma mensagem. Exemplo: Carlos Souza, RTX4F21, 12 min`, undefined, c.id)];
-      if (atrasado) saidas.push(...await alertar(repo, atual, "aceita pelo fornecedor depois do prazo"));
-      return saidas;
+      const prazo = c.status === "enviada" && c.prazo_resposta_em ? ` Envie até ${formatarHora(new Date(c.prazo_resposta_em))}, senão a corrida passa a outro fornecedor.` : "";
+      return [responder(`Para confirmar a corrida ${c.protocolo}, envie em uma única mensagem: nome do motorista, placa do carro e horário de chegada. Exemplo: Carlos Souza, RTX4F21, ${formatarHora(new Date(agora.getTime() + 15 * 60_000))}.${prazo}`, undefined, c.id)];
     }
 
     if (acao === "RECUSAR") {
@@ -436,16 +435,34 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
   const conv = await repo.conversa(tel);
   const c = conv?.dados?.corrida_id ? await repo.corrida(conv.dados.corrida_id) : null;
 
-  if (conv?.etapa === "motorista" && c && c.status === "aceita") {
-    const d = lerMotorista(e.texto ?? "");
-    if (!d.motorista) return [responder("Envie motorista, placa e previsão em uma mensagem. Exemplo: Carlos Souza, RTX4F21, 12 min")];
-    const atual = await repo.mudarStatus(c.id, null, "fornecedor", "Dados do motorista informados", d);
+  if (conv?.etapa === "motorista" && c) {
+    if (c.fornecedor_id !== forn.id) {
+      await repo.apagarConversa(tel);
+      return [responder(`A corrida ${c.protocolo} passou a outro fornecedor porque o prazo de resposta acabou. Não é preciso fazer nada.`)];
+    }
+    if (!["enviada", "sem_resposta", "aceita"].includes(c.status)) {
+      await repo.apagarConversa(tel);
+      return [responder(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}". Não é preciso fazer nada.`)];
+    }
+    // Trava: sem motorista, placa válida e horário de chegada, a corrida não é confirmada
+    const lido = lerDadosMotorista(e.texto ?? "", agora, new Date(c.data_hora_prevista), c.tipo === "agendada");
+    if (!lido.dados) {
+      return [responder(`A corrida ${c.protocolo} ainda não está confirmada. Faltou: ${lido.problemas.join("; ")}.\nEnvie tudo em uma mensagem. Exemplo: Carlos Souza, RTX4F21, ${formatarHora(new Date(agora.getTime() + 15 * 60_000))}`, undefined, c.id)];
+    }
+    const d = lido.dados;
+    const campos = { motorista: d.motorista, veiculo_placa: d.veiculo_placa, eta_minutos: d.eta_minutos };
+    const atrasado = c.status === "sem_resposta";
+    const atual = c.status === "aceita"
+      ? await repo.mudarStatus(c.id, null, "fornecedor", "Dados do motorista atualizados", campos)
+      : await repo.mudarStatus(c.id, "aceita", "fornecedor", `${atrasado ? "Aceita depois do prazo" : "Aceita pelo fornecedor"} (chegada ${formatarHora(d.chegada)})`, campos);
     await repo.salvarConversa(tel, "aguardando", { corrida_id: c.id }, agora);
-    const detalhes = [d.motorista, d.veiculo_placa ? `placa ${d.veiculo_placa}` : null, d.eta_minutos ? `chegada em cerca de ${d.eta_minutos} min` : null].filter(Boolean).join(", ");
+    const detalhes = `${d.motorista}, placa ${formatarPlaca(d.veiculo_placa)}, ${textoChegada(d.chegada, agora)}`;
+    const alertas = atrasado ? await alertar(repo, atual, "aceita pelo fornecedor depois do prazo") : [];
     return [
-      responder(`Dados registrados para a corrida ${c.protocolo}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.${await textoTabela(repo, atual)}`,
+      responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.${await textoTabela(repo, atual)}`,
         [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
       ...await avisarSolicitante(repo, atual, `Sua corrida ${c.protocolo} foi aceita por ${forn.nome}. Motorista: ${detalhes}.`, `aceita por ${forn.nome}. Motorista: ${detalhes}`),
+      ...alertas,
     ];
   }
 

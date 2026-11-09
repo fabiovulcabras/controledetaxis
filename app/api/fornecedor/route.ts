@@ -1,3 +1,4 @@
+import { formatarHora, lerChegada, placaValida } from "@/lib/motorista";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { alertar, avisarSolicitante, cancelarCorrida, reenviarAutomatico, valorEsperado, verificarValor } from "@/lib/bot/acoes";
 import { despacharSaidas } from "@/lib/whatsapp/transporte";
@@ -80,13 +81,19 @@ export async function POST(req: Request) {
 
     if (acao === "aceitar") {
       if (!["enviada", "sem_resposta"].includes(c.status)) return situacao();
-      const motorista = String(corpo.motorista ?? "").trim();
-      if (motorista.length < 2) return erroJson("Informe o nome do motorista.");
-      const placa = String(corpo.placa ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) || null;
-      const minutos = Number(corpo.minutos);
+      // Trava: sem motorista, placa válida e horário de chegada, a corrida não é confirmada
+      const motorista = String(corpo.motorista ?? "").trim().replace(/\s+/g, " ");
+      if (!/[A-Za-zÀ-ÿ]{2,}/.test(motorista)) return erroJson("Informe o nome do motorista.");
+      const placa = placaValida(corpo.placa);
+      if (!placa) return erroJson("Placa inválida. Use o padrão antigo (ABC1234) ou Mercosul (ABC1D23).");
+      const hm = String(corpo.chegada ?? "").match(/^([01]?\d|2[0-3])\s*[:h]\s*([0-5]\d)$/i);
+      if (!hm) return erroJson("Informe o horário de chegada (ex.: 17:30).");
+      const agora = new Date();
+      const chegada = lerChegada(Number(hm[1]), Number(hm[2]), agora, new Date(c.data_hora_prevista), c.tipo === "agendada");
+      if ("erro" in chegada) return erroJson(`Horário de chegada inválido: ${chegada.erro}.`);
       const atrasado = c.status === "sem_resposta";
-      const atual = await repo.mudarStatus(c.id, "aceita", "fornecedor", atrasado ? "Aceita depois do prazo (pelo link)" : "Aceita pelo link", {
-        motorista, veiculo_placa: placa, eta_minutos: Number.isInteger(minutos) && minutos > 0 && minutos < 600 ? minutos : null,
+      const atual = await repo.mudarStatus(c.id, "aceita", "fornecedor", `${atrasado ? "Aceita depois do prazo (pelo link)" : "Aceita pelo link"} (chegada ${formatarHora(chegada.em)})`, {
+        motorista, veiculo_placa: placa, eta_minutos: chegada.minutos,
       });
       if (sol) {
         links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, msgAceitaSolicitante(atual, nomeForn, base, sol.token_pedido)) });

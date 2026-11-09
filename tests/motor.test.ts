@@ -7,6 +7,7 @@ import { minutosInteiros, taxaAceite } from "../lib/relatorio";
 import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
+import { formatarPlaca, lerDadosMotorista, placaValida, textoChegada } from "../lib/motorista";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
 import { lerFaturaCsv, lerFaturaLinhas } from "../lib/csv";
@@ -185,13 +186,28 @@ describe("respostas do fornecedor", () => {
     const c = conversa();
     await pedirTaxiCompleto(c);
     const s1 = await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    expect(c.repo.corridas[0].status).toBe("aceita");
-    expect(s1[0].texto).toContain("Informe motorista");
+    // Trava: só o botão não confirma; faltam motorista, placa e horário
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    expect(s1[0].texto).toContain("Para confirmar a corrida TX-2026-00001");
+    const semPlaca = await c.enviar({ telefone: RTC, texto: "Carlos Souza, 09h45" });
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    expect(semPlaca[0].texto).toContain("ainda não está confirmada");
+    expect(semPlaca[0].texto).toContain("placa");
+    const placaRuim = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4FF1, 09h45" });
+    expect(placaRuim[0].texto).toContain("não segue o padrão");
+    const semHora = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, chega em 12 min" });
+    expect(semHora[0].texto).toContain("horário de chegada");
+    const horaPassada = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 08h00" });
+    expect(horaPassada[0].texto).toContain("já passou");
+    expect(c.repo.corridas[0].status).toBe("enviada");
 
-    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX-4F21, 12 min" });
+    // 09h34 agora: chegada 09h47 = 13 min
+    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX-4F21, 09h47" });
+    expect(c.repo.corridas[0].status).toBe("aceita");
     expect(c.repo.corridas[0].motorista).toBe("Carlos Souza");
     expect(c.repo.corridas[0].veiculo_placa).toBe("RTX4F21");
-    expect(c.repo.corridas[0].eta_minutos).toBe(12);
+    expect(c.repo.corridas[0].eta_minutos).toBe(13);
+    expect(ultima(s2, ANA).texto).toContain("chegada prevista às 09h47 (em cerca de 13 min)");
     expect(ultima(s2, ANA).texto).toContain("foi aceita por Rádio Táxi Central");
     expect(ultima(s2, ANA).template?.nome).toBe("atualizacao_corrida_solicitante");
     expect(ultima(s2, RTC).opcoes?.map((o) => o.id)).toEqual(["EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
@@ -232,6 +248,7 @@ describe("respostas do fornecedor", () => {
     const c = conversa();
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, ABC1234, 10h00" });
     await c.enviar({ telefone: ANA, texto: "menu" });
     await c.enviar({ telefone: ANA, botaoId: "cancelar" });
     await c.enviar({ telefone: ANA, botaoId: "cancelar:c1" });
@@ -243,7 +260,7 @@ describe("respostas do fornecedor", () => {
     const c = conversa();
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 10 min" });
+    await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 10h00" });
     const s = await c.enviar({ telefone: RTC, botaoId: "NAO_REALIZADA:TX-2026-00001" });
     expect(c.repo.corridas[0].status).toBe("cancelada");
     expect(ultima(s, ANA).texto).toContain("não foi realizada");
@@ -259,7 +276,9 @@ describe("agendador", () => {
     expect(ultima(s, PLAN).texto).toContain("sem resposta");
     expect(ultima(s, ANA).texto).toContain("ainda não respondeu");
     expect(await verificarPrazos(c.repo, min(31))).toHaveLength(0);
-    const tarde = await processarEntrada({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" }, c.repo, min(32));
+    await processarEntrada({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" }, c.repo, min(32));
+    expect(c.repo.corridas[0].status).toBe("sem_resposta");
+    const tarde = await processarEntrada({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h10" }, c.repo, min(33));
     expect(c.repo.corridas[0].status).toBe("aceita");
     expect(ultima(tarde, PLAN).texto).toContain("depois do prazo");
   });
@@ -341,9 +360,9 @@ describe("links do WhatsApp (wa.me)", () => {
     const c = conversa();
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
     const msg = msgAceitaSolicitante(c.repo.corridas[0], "Rádio Táxi Central", "https://app.exemplo", "abc");
-    expect(msg).toContain("Motorista: Carlos Souza, placa RTX4F21, chega em cerca de 12 min.");
+    expect(msg).toMatch(/Motorista: Carlos Souza, placa RTX4F21, chegada prevista às \d{2}h\d{2}/);
     expect(msg).toContain("https://app.exemplo/pedir/abc");
   });
   it("reenviar a outro fornecedor troca o link; reenviar ao mesmo mantém", async () => {
@@ -445,7 +464,7 @@ describe("reenvio automático e conferência de valor", () => {
     c.repo.solicitantes[0].limite_mensal = 50;
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 5 min" });
+    await c.enviar({ telefone: RTC, texto: "Carlos, RTX4F21, 10h00" });
     const s = await c.enviar({ telefone: RTC, texto: "80" });
     expect(para(s, PLAN).some((x) => x.texto.includes("passou do limite mensal"))).toBe(true);
   });
@@ -507,8 +526,8 @@ describe("Evolution API e fila com prazo (QStash)", () => {
     const resposta = traduzirResposta("1", msg.opcoes);
     expect(resposta).toBe("ACEITAR:TX-2026-00001");
     await c.enviar({ telefone: RTC, texto: "1", botaoId: resposta! });
-    expect(c.repo.corridas[0].status).toBe("aceita");
-    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
     expect(ultima(s2, ANA).texto).toContain("foi aceita por");
   });
 
@@ -613,8 +632,11 @@ describe("palavra de ativação", () => {
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
     expect(await c.enviar({ telefone: RTC, texto: "bom dia" })).toEqual([]);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    expect(ultima(await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" }), RTC).texto).toContain("ainda não está confirmada");
+    expect(c.repo.corridas[0].status).toBe("enviada"); // sem horário formatado não confirma
+    const s = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
     expect(c.repo.corridas[0].status).toBe("aceita");
-    const s = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
     expect(ultima(s, ANA).texto).toContain("foi aceita por");
   });
 });
@@ -726,7 +748,7 @@ describe("tabela de preços", () => {
     c.repo.precos.push(L("Guarulhos", "Guarulhos", null, "qualquer", "passeio", 410));
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    const dados = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" });
+    const dados = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
     expect(ultima(dados, RTC).texto).toMatch(/Valor da tabela: R\$\s410,00/);
     const s = await c.enviar({ telefone: RTC, texto: "450,00" });
     expect(ultima(s, RTC).texto).toContain("acima da tabela");
@@ -825,5 +847,39 @@ describe("motivos cadastráveis", () => {
     expect(p.rotuloLista).toBe("Ver motivos");
     const r = await c.enviar({ telefone: ANA, texto: "2" });
     expect(r[0].texto).toContain("Motivo: Visita a fornecedor");
+  });
+});
+
+describe("dados do motorista", () => {
+  const agora = dataSP(2026, 11, 9, 17, 15);
+  it("placa antiga ou Mercosul, sempre 7 caracteres", () => {
+    expect(placaValida("abc-1234")).toBe("ABC1234");
+    expect(placaValida("RTX4F21")).toBe("RTX4F21");
+    expect(placaValida("ABC12345")).toBeNull();
+    expect(placaValida("AB1C234")).toBeNull();
+    expect(placaValida("ABC1DD3")).toBeNull();
+    expect(formatarPlaca("ABC1234")).toBe("ABC-1234");
+  });
+  it("horário de chegada: 17h30 às 17h15 = 15 min; formatos aceitos", () => {
+    for (const t of ["Carlos, ABC1234, 17h30", "Carlos ABC1234 17:30", "Carlos - ABC-1234 - chega 17 h 30"]) {
+      const r = lerDadosMotorista(t, agora);
+      expect(r.dados?.eta_minutos).toBe(15);
+    }
+    const r = lerDadosMotorista("Carlos Souza, RTX4F21, 18h", agora);
+    expect([r.dados?.motorista, r.dados?.eta_minutos]).toEqual(["Carlos Souza", 45]);
+    expect(textoChegada(dataSP(2026, 11, 9, 17, 30), agora)).toBe("chegada prevista às 17h30 (em cerca de 15 min)");
+  });
+  it("faltando dados ou horário inválido não confirma", () => {
+    const r = lerDadosMotorista("Carlos", agora);
+    expect(r.ok).toBe(false);
+    expect(r.problemas.length).toBe(2);
+    expect(lerDadosMotorista("ABC1234 17h30", agora).ok).toBe(false); // sem nome
+    expect(lerDadosMotorista("Carlos ABC1234 16h00", agora).ok).toBe(false); // já passou
+    expect(lerDadosMotorista("Carlos ABC1234 23h59", agora).ok).toBe(false); // mais de 6 h
+  });
+  it("corrida agendada usa o dia marcado", () => {
+    const amanha = dataSP(2026, 11, 10, 7, 30);
+    const r = lerDadosMotorista("Carlos ABC1234 07h20", agora, amanha, true);
+    expect(r.dados?.chegada.toISOString()).toBe(dataSP(2026, 11, 10, 7, 20).toISOString());
   });
 });
