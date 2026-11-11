@@ -1,3 +1,4 @@
+import { normalizarTelefone, variantesTelefone } from "../telefone";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Entrada, Saida } from "../bot/tipos";
 import { payloadMeta } from "./meta";
@@ -39,7 +40,9 @@ export async function completarLocalizacao(e: Entrada): Promise<Entrada> {
  */
 export async function traduzirOpcaoNumerada(db: SupabaseClient, e: Entrada): Promise<Entrada> {
   if (e.botaoId || !e.texto) return e;
-  const { data } = await db.from("opcoes_enviadas").select("opcoes,enviado_em").eq("telefone", e.telefone).maybeSingle();
+  // O WhatsApp pode entregar o número sem o nono dígito (553591082751): busca nas duas formas
+  const { data } = await db.from("opcoes_enviadas").select("opcoes,enviado_em").in("telefone", variantesTelefone(e.telefone))
+    .order("enviado_em", { ascending: false }).limit(1).maybeSingle();
   if (!data?.opcoes || Date.now() - new Date(data.enviado_em).getTime() > 24 * 3600_000) return e;
   const id = traduzirResposta(e.texto, data.opcoes);
   return id ? { ...e, botaoId: id } : e;
@@ -140,7 +143,7 @@ async function enviarPelaEvolution(db: SupabaseClient, s: Saida): Promise<void> 
   const r = await enviarTextoEvolution(s.para, texto);
   if (!r.ok) console.error("Falha ao enviar pela Evolution", { para: s.para, erro: r.erro });
   if (r.ok) {
-    const { error } = await db.from("opcoes_enviadas").upsert({ telefone: s.para, opcoes: s.opcoes?.length ? s.opcoes : null, enviado_em: new Date().toISOString() });
+    const { error } = await db.from("opcoes_enviadas").upsert({ telefone: normalizarTelefone(s.para), opcoes: s.opcoes?.length ? s.opcoes : null, enviado_em: new Date().toISOString() });
     if (error) console.error("Falha ao guardar as opções enviadas (rodou a migração 006?)", error.message);
   }
   const { error } = await db.from("mensagens").insert({

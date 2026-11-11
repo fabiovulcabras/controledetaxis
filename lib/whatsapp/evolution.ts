@@ -1,4 +1,5 @@
 import type { Entrada, Opcao, Saida } from "../bot/tipos";
+import { normalizarTelefone } from "../telefone";
 
 /**
  * Evolution API (WhatsApp não oficial, via WhatsApp Web). Aqui ficam só funções puras e o envio por fetch:
@@ -16,7 +17,8 @@ export function telefoneDaChave(key: any, data: any): string | null {
   if (!jid || jid.endsWith("@g.us") || jid === "status@broadcast" || jid.endsWith("@newsletter")) return null; // grupos, status e canais
   const real = jid.endsWith("@lid") ? key?.senderPn ?? key?.remoteJidAlt ?? data?.senderPn ?? "" : jid;
   const numero = String(real).split("@")[0].split(":")[0].replace(/\D/g, "");
-  return numero.length >= 10 ? numero : null;
+  // Forma do cadastro (com o nono dígito): o WhatsApp entrega celulares de vários DDDs sem ele
+  return numero.length >= 10 ? normalizarTelefone(numero) : null;
 }
 
 /** Converte o evento messages.upsert da Evolution (v2) nas entradas do motor do bot. Ignora o que o próprio número enviou. */

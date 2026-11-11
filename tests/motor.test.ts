@@ -506,6 +506,8 @@ describe("Evolution API e fila com prazo (QStash)", () => {
     expect(r[3].entrada.telefone).toBe("5511900000002");
     expect(lerWebhookEvolution(evento({ key: { remoteJid: "5511900000101@s.whatsapp.net", id: "B1" }, message: { conversation: "2" } }))).toHaveLength(1);
     expect(lerWebhookEvolution({ event: "connection.update", data: {} })).toEqual([]);
+    // DDD 35 chega sem o nono dígito: vira a forma do cadastro
+    expect(lerWebhookEvolution(evento({ key: { remoteJid: "553591082751@s.whatsapp.net", id: "C1" }, message: { conversation: "1" } }))[0].entrada.telefone).toBe("5535991082751");
   });
 
   it("opções vão numeradas e a resposta numérica vira a opção", () => {
