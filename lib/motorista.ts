@@ -88,3 +88,17 @@ export function textoChegada(chegada: Date, agora: Date): string {
   const min = Math.max(0, Math.round((chegada.getTime() - agora.getTime()) / 60_000));
   return `chegada prevista às ${formatarHora(chegada)}${min > 0 && min <= 360 ? ` (em cerca de ${min} min)` : ""}`;
 }
+
+/** Nome do motorista em mensagem própria: letras (com acento), espaços, ponto, apóstrofo e hífen; sem números. */
+export function nomeValido(texto: string | null | undefined): string | null {
+  const t = String(texto ?? "").replace(/\s+/g, " ").trim();
+  if (/\d/.test(t) || !/^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'-]{1,59}$/.test(t)) return null;
+  return t;
+}
+
+/** Horário de chegada em mensagem própria ("17h30", "17:30", "17h"). */
+export function lerHorarioChegada(texto: string, agora: Date, referencia?: Date | null, agendada = false): Chegada | ErroChegada {
+  const h = acharHorario(String(texto ?? ""));
+  if (!h) return { erro: "envie o horário no formato 17h30" };
+  return lerChegada(h.hora, h.minuto, agora, referencia, agendada);
+}

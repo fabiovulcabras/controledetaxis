@@ -7,7 +7,7 @@ import { minutosInteiros, taxaAceite } from "../lib/relatorio";
 import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
 import { lerDataHora, lerValor, formatarDataHora, dataSP } from "../lib/datas";
-import { formatarPlaca, lerDadosMotorista, placaValida, textoChegada } from "../lib/motorista";
+import { formatarPlaca, lerDadosMotorista, nomeValido, placaValida, textoChegada } from "../lib/motorista";
 import { normalizarTelefone, variantesTelefone } from "../lib/telefone";
 import { repoExemplo } from "./repo-memoria";
 import { lerFaturaCsv, lerFaturaLinhas } from "../lib/csv";
@@ -186,29 +186,28 @@ describe("respostas do fornecedor", () => {
     const c = conversa();
     await pedirTaxiCompleto(c);
     const s1 = await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
-    // Trava: só o botão não confirma; faltam motorista, placa e horário
+    // Trava: só o botão não confirma; vêm três perguntas
     expect(c.repo.corridas[0].status).toBe("enviada");
-    expect(s1[0].texto).toContain("Para confirmar a corrida TX-2026-00001");
-    const semPlaca = await c.enviar({ telefone: RTC, texto: "Carlos Souza, 09h45" });
-    expect(c.repo.corridas[0].status).toBe("enviada");
-    expect(semPlaca[0].texto).toContain("ainda não está confirmada");
-    expect(semPlaca[0].texto).toContain("placa");
-    const placaRuim = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4FF1, 09h45" });
-    expect(placaRuim[0].texto).toContain("não segue o padrão");
-    const semHora = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, chega em 12 min" });
-    expect(semHora[0].texto).toContain("horário de chegada");
-    const horaPassada = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 08h00" });
-    expect(horaPassada[0].texto).toContain("já passou");
+    expect(s1[0].texto).toContain("1/3 — Qual o nome do motorista?");
+    // 1/3 nome: com número não vale
+    expect((await c.enviar({ telefone: RTC, texto: "Carlos 2" }))[0].texto).toContain("só o nome do motorista");
+    expect((await c.enviar({ telefone: RTC, texto: "Carlos Souza" }))[0].texto).toContain("2/3 — Qual a placa do carro?");
+    // 2/3 placa: padrão antigo ou Mercosul
+    expect((await c.enviar({ telefone: RTC, texto: "RTX4FF1" }))[0].texto).toContain("não é uma placa válida");
+    expect((await c.enviar({ telefone: RTC, texto: "ABC12345" }))[0].texto).toContain("não é uma placa válida");
+    expect((await c.enviar({ telefone: RTC, texto: "rtx-4f21" }))[0].texto).toContain("3/3 — Que horas o motorista chega?");
+    // 3/3 horário: formatado, não pode ter passado
+    expect((await c.enviar({ telefone: RTC, texto: "em 12 min" }))[0].texto).toContain("formato 17h30");
+    expect((await c.enviar({ telefone: RTC, texto: "08h00" }))[0].texto).toContain("já passou");
     expect(c.repo.corridas[0].status).toBe("enviada");
 
-    // 09h34 agora: chegada 09h47 = 13 min
-    const s2 = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX-4F21, 09h47" });
+    // agora 09h37: chegada 09h48 = 11 min
+    const s2 = await c.enviar({ telefone: RTC, texto: "09h48" });
     expect(c.repo.corridas[0].status).toBe("aceita");
     expect(c.repo.corridas[0].motorista).toBe("Carlos Souza");
     expect(c.repo.corridas[0].veiculo_placa).toBe("RTX4F21");
-    expect(c.repo.corridas[0].eta_minutos).toBe(13);
-    expect(ultima(s2, ANA).texto).toContain("chegada prevista às 09h47 (em cerca de 13 min)");
-    expect(ultima(s2, ANA).texto).toContain("foi aceita por Rádio Táxi Central");
+    expect(c.repo.corridas[0].eta_minutos).toBe(11);
+    expect(ultima(s2, ANA).texto).toContain("Motorista: Carlos Souza, placa RTX4F21, chegada prevista às 09h48 (em cerca de 11 min)");
     expect(ultima(s2, ANA).template?.nome).toBe("atualizacao_corrida_solicitante");
     expect(ultima(s2, RTC).opcoes?.map((o) => o.id)).toEqual(["EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
 
@@ -635,7 +634,7 @@ describe("palavra de ativação", () => {
     expect(await c.enviar({ telefone: RTC, texto: "bom dia" })).toEqual([]);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
     expect(c.repo.corridas[0].status).toBe("enviada");
-    expect(ultima(await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" }), RTC).texto).toContain("ainda não está confirmada");
+    expect(ultima(await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 12 min" }), RTC).texto).toContain("só fica confirmada");
     expect(c.repo.corridas[0].status).toBe("enviada"); // sem horário formatado não confirma
     const s = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
     expect(c.repo.corridas[0].status).toBe("aceita");
@@ -883,5 +882,22 @@ describe("dados do motorista", () => {
     const amanha = dataSP(2026, 11, 10, 7, 30);
     const r = lerDadosMotorista("Carlos ABC1234 07h20", agora, amanha, true);
     expect(r.dados?.chegada.toISOString()).toBe(dataSP(2026, 11, 10, 7, 20).toISOString());
+  });
+});
+
+describe("dados do motorista em passos", () => {
+  it("quem manda tudo numa mensagem confirma de uma vez", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, ABC-1234, 10h00" });
+    expect(c.repo.corridas[0].status).toBe("aceita");
+    expect(c.repo.corridas[0].veiculo_placa).toBe("ABC1234");
+  });
+  it("nomes aceitos e recusados", () => {
+    expect(nomeValido("  João  da   Silva ")).toBe("João da Silva");
+    expect(nomeValido("D'Ávila")).toBe("D'Ávila");
+    expect(nomeValido("ABC1234")).toBeNull();
+    expect(nomeValido("x")).toBeNull();
   });
 });
