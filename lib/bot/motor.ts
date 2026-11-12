@@ -1,5 +1,5 @@
 import { formatarHora, formatarPlaca, lerDadosMotorista, lerHorarioChegada, nomeValido, placaValida, textoChegada } from "../motorista";
-import type { Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
+import type { Conversa, Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
@@ -136,10 +136,11 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   };
   // Sem conversa em andamento: mostra o menu, a não ser que a mensagem já seja uma opção dele ("3" = cancelar)
   if (!conv && !escolha(e, MENU)) return menu();
-  if (!conv) conv = { telefone: tel, etapa: "menu", dados: {}, atualizado_em: agora.toISOString() } as any;
+  if (!conv) conv = { telefone: tel, etapa: "menu", dados: {}, atualizado_em: agora.toISOString() };
+  const cv: Conversa = conv;
   if (/^(menu|inicio|voltar|sair)$/.test(semAcento(e.texto ?? ""))) return menu();
 
-  const dados = { ...conv.dados };
+  const dados = { ...cv.dados };
   const ir = async (etapa: string, s: Saida | Saida[], novos: Record<string, any> = {}) => {
     await repo.salvarConversa(tel, etapa, { ...dados, ...novos, tentativas: 0 }, agora);
     return [...saidas, ...(Array.isArray(s) ? s : [s])];
@@ -214,7 +215,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     return null;
   };
 
-  switch (conv.etapa) {
+  switch (cv.etapa) {
     case "menu": {
       const op = escolha(e, MENU) ?? (/(taxi|pedir|corrida nova)/.test(semAcento(e.texto ?? "")) ? "pedir" : null);
       if (op === "pedir") return ir("quando", pQuando(), {});
