@@ -48,6 +48,7 @@ const ETAPAS_FORNECEDOR = ["motorista", "placa", "chegada", "valor", "aguardando
 /**
  * Com palavra de ativação (Cadastros › Parâmetros › palavra_ativacao), o bot só responde quando:
  *  - a mensagem contém a palavra; ou
+ *  - a pessoa autorizada tem corrida aberta, ainda sem embarque (pode acompanhar ou cancelar); ou
  *  - a pessoa já está numa conversa com o bot (dentro de conversa_expira_min); ou
  *  - é um fornecedor respondendo a uma corrida (1/2, botões, dados do motorista, valor).
  * O resto é ignorado em silêncio: útil quando o número do bot também é usado para conversas comuns.
@@ -59,6 +60,9 @@ export async function deveAtender(entrada: Entrada, repo: Repo, agora: Date): Pr
   const conv = await repo.conversa(telefone);
   const fornecedor = await repo.fornecedorPorTelefone(telefone);
   if (fornecedor?.ativo) return ACAO_FORNECEDOR.test(entrada.botaoId ?? "") || (!!conv && ETAPAS_FORNECEDOR.includes(conv.etapa));
+  // Pessoa autorizada com corrida aberta (até o embarque): fala com o robô sem a palavra, para acompanhar ou cancelar
+  const sol = await repo.solicitantePorTelefone(telefone);
+  if (sol?.ativo && (await repo.corridasDoSolicitante(sol.id, 10)).some((c) => CANCELAVEIS_SOLICITANTE.includes(c.status))) return true;
   if (!conv || conv.etapa === "nao_autorizado") return false;
   const expiraMin = await numero(repo, "conversa_expira_min", 15);
   return agora.getTime() - new Date(conv.atualizado_em).getTime() <= expiraMin * 60_000;
@@ -130,7 +134,9 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     await repo.salvarConversa(tel, "menu", {}, agora);
     return [...saidas, pergunta(tel, texto, MENU)];
   };
-  if (!conv) return menu();
+  // Sem conversa em andamento: mostra o menu, a não ser que a mensagem já seja uma opção dele ("3" = cancelar)
+  if (!conv && !escolha(e, MENU)) return menu();
+  if (!conv) conv = { telefone: tel, etapa: "menu", dados: {}, atualizado_em: agora.toISOString() } as any;
   if (/^(menu|inicio|voltar|sair)$/.test(semAcento(e.texto ?? ""))) return menu();
 
   const dados = { ...conv.dados };
@@ -300,7 +306,10 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     }
 
     case "cancelar_escolha": {
-      const id = e.botaoId?.startsWith("cancelar:") ? e.botaoId.slice("cancelar:".length) : null;
+      // Escolha pela lista (botão ou número da opção) ou pelo protocolo digitado
+      const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((x) => CANCELAVEIS_SOLICITANTE.includes(x.status)).slice(0, 10);
+      const op = escolha(e, abertas.map((x) => ({ id: `cancelar:${x.id}`, titulo: x.protocolo })));
+      const id = op?.startsWith("cancelar:") ? op.slice("cancelar:".length) : null;
       const c = id ? await repo.corrida(id) : e.texto ? await repo.corridaPorProtocolo(e.texto.toUpperCase()) : null;
       if (!c || c.solicitante_id !== sol.id) return invalida(pergunta(tel, "Toque em uma das corridas da lista ou envie o protocolo (ex.: TX-2026-00123)."));
       if (!CANCELAVEIS_SOLICITANTE.includes(c.status)) {

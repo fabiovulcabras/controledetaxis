@@ -617,8 +617,14 @@ describe("palavra de ativação", () => {
     await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     const fim = await c.enviar({ telefone: ANA, botaoId: "confirmar" });
     expect(ultima(fim, ANA).texto).toContain("registrada");
-    // Pedido feito: a conversa acaba e um "obrigado" não aciona o bot
-    expect(await c.enviar({ telefone: ANA, texto: "obrigado!" })).toEqual([]);
+    // Com a corrida aberta (até o embarque), a pessoa fala com o robô sem a palavra
+    const menu = await c.enviar({ telefone: ANA, texto: "3" });
+    expect(menu[0].texto).toContain("Qual corrida você quer cancelar?");
+    await c.enviar({ telefone: ANA, texto: "1" });
+    await c.enviar({ telefone: ANA, texto: "Não preciso mais" });
+    expect(c.repo.corridas[0].status).toBe("cancelada");
+    // Sem corrida aberta, volta a exigir a palavra
+    expect(await c.enviar({ telefone: ANA, texto: "obrigado!" }, 30)).toEqual([]);
   });
 
   it("fornecedor responde à corrida sem a palavra, mas conversa comum dele é ignorada", async () => {
