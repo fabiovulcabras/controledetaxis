@@ -19,13 +19,13 @@ export async function GET(req: Request) {
     if (!forn?.ativo) return erroJson("Este link não vale mais. Peça um novo ao planejamento.", 404);
     const desde = new Date(Date.now() - 45 * 86400_000).toISOString();
     const { data: corridas, error: e2 } = await db.from("corridas_lista")
-      .select("id,protocolo,status,tipo,data_hora_prevista,origem,destino,solicitante_nome,valor_informado,token_fornecedor,prazo_resposta_em")
+      .select("id,protocolo,status,tipo,data_hora_prevista,origem,destino,solicitante_nome,valor_informado,token_fornecedor,prazo_resposta_em,observacoes")
       .eq("fornecedor_id", forn.id).gte("data_hora_prevista", desde).order("data_hora_prevista", { ascending: false }).limit(150);
     if (e2) throw new Error(e2.message);
     const item = (c: any) => ({
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: c.destino, solicitante: c.solicitante_nome,
-      valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em,
+      valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em, observacoes: c.observacoes ?? null,
     });
     const lista = corridas ?? [];
     // Abrir o portal identifica este aparelho como do fornecedor: os links /f/… passam a permitir responder

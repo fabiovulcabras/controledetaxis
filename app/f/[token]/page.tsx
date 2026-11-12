@@ -10,7 +10,7 @@ import { placaValida } from "@/lib/motorista";
 type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
   origem: string; destino: string; passageiros: number; outros_passageiros: string | null; solicitante: string; prazo: string | null;
-  motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string;
+  motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string; observacoes?: string | null;
   prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null; autorizado?: boolean;
   valor_tabela?: number | null; tabela_descricao?: string | null;
 };
@@ -92,6 +92,7 @@ export default function RespostaFornecedor() {
           <dt>Destino</dt><dd>{c.destino}</dd>
           <dt>Passageiros</dt><dd>{c.passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
           <dt>Solicitante</dt><dd>{c.solicitante}</dd>
+          {c.observacoes && <><dt>Observações</dt><dd className="observacoes-corrida">{c.observacoes}</dd></>}
           {c.prazo && <><dt>Responder até</dt><dd><strong>{c.prazo}</strong> <Prazo ate={c.prazo_iso} /></dd></>}
           {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
           {c.motorista && <><dt>Motorista</dt><dd>{[c.motorista, c.placa, c.minutos ? `${c.minutos} min` : null].filter(Boolean).join(" · ")}</dd></>}

@@ -58,7 +58,7 @@ export async function GET(req: Request) {
         // Para o botão "Repetir": refaz o formulário com os mesmos dados
         repetir: {
           origem: c.origem, origem_lat: num(c.origem_lat), origem_lng: num(c.origem_lng), destino: c.destino, destino_lat: num(c.destino_lat), destino_lng: num(c.destino_lng),
-          qtd_passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? "", motivo: c.motivo,
+          qtd_passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? "", motivo: c.motivo, observacoes: c.observacoes ?? "",
         },
         // Enquanto o fornecedor não respondeu, a pessoa pode reenviar a mensagem pelo WhatsApp
         whatsapp_fornecedor: ["enviada", "sem_resposta"].includes(c.status) && c.fornecedores?.telefone_whatsapp
@@ -106,6 +106,7 @@ export async function POST(req: Request) {
     const origem = String(corpo.origem ?? "").trim().slice(0, 300);
     const destino = String(corpo.destino ?? "").trim().slice(0, 300);
     const motivo = String(corpo.motivo ?? "").trim().slice(0, 200);
+    const observacoes = String(corpo.observacoes ?? "").trim().slice(0, 500) || null;
     const qtd = Number(corpo.qtd_passageiros ?? 1);
     if (tipo === "agendada" && (isNaN(quando.getTime()) || quando.getTime() < agora.getTime() - 2 * 60_000)) return erroJson("Informe uma data e hora futuras.");
     if (quando.getTime() > agora.getTime() + maxDias * 86400_000) return erroJson(`Só é possível agendar até ${maxDias} dias à frente.`);
@@ -133,6 +134,7 @@ export async function POST(req: Request) {
     const corrida = await repo.criarCorrida({
       solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim().slice(0, 200) || null : null, motivo,
+      ...(observacoes ? { observacoes } : {}),
       ...pontos, ...(distancia != null ? { distancia_km: distancia } : {}), ...(chave ? { chave_envio: chave } : {}),
     });
 

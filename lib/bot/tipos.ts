@@ -19,6 +19,8 @@ export type Corrida = {
   tipo: "imediata" | "agendada"; data_hora_prevista: string; origem: string; destino: string;
   origem_lat?: number | null; origem_lng?: number | null; destino_lat?: number | null; destino_lng?: number | null;
   qtd_passageiros: number; outros_passageiros?: string | null; motivo: string; status: StatusCorrida;
+  /** Observações do solicitante para o fornecedor (opcional, migração 011) */
+  observacoes?: string | null;
   motorista?: string | null; veiculo_placa?: string | null; eta_minutos?: number | null;
   valor_informado?: number | null; valor_faturado?: number | null; prazo_resposta_em?: string | null;
   lembrete_enviado_em?: string | null; motivo_recusa?: string | null; motivo_cancelamento?: string | null;
@@ -32,7 +34,7 @@ export type Corrida = {
 };
 
 export type NovaCorrida = Pick<Corrida, "solicitante_id" | "tipo" | "data_hora_prevista" | "origem" | "destino" | "qtd_passageiros" | "motivo">
-  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio">>;
+  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio" | "observacoes">>;
 
 export type CamposCorrida = Partial<Pick<Corrida,
   "fornecedor_id" | "motorista" | "veiculo_placa" | "eta_minutos" | "valor_informado" | "prazo_resposta_em" |

@@ -192,6 +192,9 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       `Origem: ${d.origem}`, `Destino: ${d.destino}`,
       `Passageiros: ${d.qtd_passageiros}${d.outros_passageiros ? ` (${d.outros_passageiros})` : ""}`,
       `Motivo: ${d.motivo}`,
+      ...(d.observacoes ? [`Observações: ${d.observacoes}`] : []),
+      "",
+      d.observacoes ? "Para trocar a observação, escreva a nova antes de confirmar." : "Quer deixar uma observação para o fornecedor (bagagem, ponto de referência)? Escreva antes de confirmar.",
     ].join("\n"), OPCOES_CONFIRMAR);
   };
   const lugar = async (padrao: "origem" | "destino") => {
@@ -302,6 +305,12 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
         return [...saidas, pergunta(tel, "Vamos refazer. Para quando é o táxi?", OPCOES_QUANDO)];
       }
       if (op === "descartar") return menu("Solicitação descartada. Precisa de mais alguma coisa?");
+      // Texto escrito na confirmação vira a observação da corrida (opcional) e o resumo é mostrado de novo
+      const texto = (e.texto ?? "").trim();
+      if (!op && !e.botaoId && !e.localizacao && texto.length >= 3) {
+        const observacoes = texto.slice(0, 500);
+        return ir("confirmar", await resumo({ ...dados, observacoes }), { observacoes });
+      }
       if (op !== "confirmar") return invalida(await resumo(dados));
       return [...saidas, ...await registrar(sol, dados, repo, agora)];
     }
@@ -356,6 +365,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
     data_hora_prevista: d.data_hora_prevista ?? agora.toISOString(), origem: d.origem, destino: d.destino,
     origem_lat: d.origem_lat ?? null, origem_lng: d.origem_lng ?? null, destino_lat: d.destino_lat ?? null, destino_lng: d.destino_lng ?? null,
     qtd_passageiros: d.qtd_passageiros ?? 1, outros_passageiros: d.outros_passageiros ?? null, motivo: d.motivo,
+    ...(d.observacoes ? { observacoes: d.observacoes } : {}),
   });
   await encerrarConversa(repo, tel, agora);
 

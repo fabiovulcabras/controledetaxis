@@ -634,3 +634,7 @@ th.num { text-align: right; }
 .cartao-corrida-rodape b { color: var(--navy); font-variant-numeric: tabular-nums; }
 .paginacao { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; color: var(--slate-600); font-size: 14px; }
 @media (max-width: 760px) { .so-tela-larga { display: none; } .so-celular { display: grid; } }
+
+/* Observações do solicitante: destacadas para o fornecedor não deixar passar */
+.observacoes-corrida { white-space: pre-wrap; border-left: 3px solid var(--gold); background: #FFFBEB; color: var(--slate-700); padding: 6px 10px; border-radius: 0 8px 8px 0; }
+p.observacoes-corrida { margin: 6px 0 0; font-size: 13px; }

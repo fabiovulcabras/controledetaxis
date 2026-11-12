@@ -18,7 +18,7 @@ type Dados = {
 };
 type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
 
-const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "" };
+const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "", observacoes: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
 const novaChave = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
@@ -83,7 +83,7 @@ export default function Pedir() {
       body: JSON.stringify({
         token, chave_envio: chaveEnvio, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
         origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
-        motivo,
+        motivo, observacoes: form.observacoes.trim(),
       }),
     });
     const j = await r.json().catch(() => ({}));
@@ -176,6 +176,9 @@ export default function Pedir() {
               </select>
             </Campo>
             {form.motivo === "outro" && <Campo rotulo="Qual?" obrigatorio><input value={form.motivo_outro} onChange={campo("motivo_outro")} /></Campo>}
+            <Campo rotulo="Observações" ajuda="Opcional. O fornecedor vê junto com a corrida.">
+              <textarea rows={3} maxLength={500} value={form.observacoes} onChange={campo("observacoes")} placeholder="Ex.: bagagem grande, ponto de referência, passageiro com mobilidade reduzida" />
+            </Campo>
             {err && <div className="err">{err}</div>}
             <button className="pri botao-grande" disabled={enviando}>{enviando ? "Registrando…" : "Confirmar pedido"}</button>
           </div>

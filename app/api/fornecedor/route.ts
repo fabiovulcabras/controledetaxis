@@ -33,6 +33,7 @@ export async function GET(req: Request) {
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status].rotulo, fornecedor: forn?.nome ?? null,
       quando: c.tipo === "imediata" ? `Agora (pedido às ${formatarDataHora(c.criado_em).slice(6)})` : formatarDataHora(c.data_hora_prevista),
       tipo: c.tipo, origem: c.origem, destino: c.destino, passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? null,
+      observacoes: c.observacoes ?? null,
       solicitante: sol?.nome ?? "—", prazo: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? formatarDataHora(c.prazo_resposta_em) : null,
       motorista: c.motorista ?? null, placa: c.veiculo_placa ?? null, minutos: c.eta_minutos ?? null,
       valor: c.valor_informado ?? null, motivo_cancelamento: c.motivo_cancelamento ?? null,

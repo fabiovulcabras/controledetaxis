@@ -95,7 +95,8 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
   return {
     corrida: atual,
     saidas: [{
-      para: forn.telefone_whatsapp, corridaId: c.id, texto: textoTemplate("nova_corrida_fornecedor", parametros),
+      // Observações vão no texto; o modelo aprovado na Meta tem campos fixos (o fornecedor vê no link da corrida)
+      para: forn.telefone_whatsapp, corridaId: c.id, texto: textoTemplate("nova_corrida_fornecedor", parametros) + (c.observacoes ? `\nObservações: ${c.observacoes}` : ""),
       opcoes: [{ id: `ACEITAR:${c.protocolo}`, titulo: "Aceitar" }, { id: `RECUSAR:${c.protocolo}`, titulo: "Recusar" }],
       template: { nome: "nova_corrida_fornecedor", parametros, botoes: [`ACEITAR:${c.protocolo}`, `RECUSAR:${c.protocolo}`], sempre: true },
     }],

@@ -649,6 +649,35 @@ describe("palavra de ativação", () => {
   });
 });
 
+describe("observações da corrida", () => {
+  it("texto escrito na confirmação vira observação, aparece no resumo e vai ao fornecedor", async () => {
+    const c = conversa();
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    const r1 = await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    expect(ultima(r1, ANA).texto).toContain("Quer deixar uma observação");
+    const r2 = await c.enviar({ telefone: ANA, texto: "Levo duas malas grandes" });
+    expect(ultima(r2, ANA).texto).toContain("Observações: Levo duas malas grandes");
+    expect(ultima(r2, ANA).opcoes?.map((o) => o.id)).toContain("confirmar");
+    const s = await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    expect(c.repo.corridas[0].observacoes).toBe("Levo duas malas grandes");
+    expect(ultima(s, RTC).texto).toContain("Observações: Levo duas malas grandes");
+    expect(msgNovaCorridaFornecedor(c.repo.corridas[0], "Ana", "https://app")).toContain("Observações: Levo duas malas grandes");
+  });
+
+  it("sem observação, a corrida e a mensagem ao fornecedor seguem como antes", async () => {
+    const c = conversa();
+    const s = await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].observacoes ?? null).toBeNull();
+    expect(ultima(s, RTC).texto).not.toContain("Observações");
+    expect(msgNovaCorridaFornecedor(c.repo.corridas[0], "Ana", "https://app")).not.toContain("Observações");
+  });
+});
+
 describe("locais cadastrados no bot", () => {
   it("oferece unidade e locais frequentes e aceita a escolha, o número ou o nome", async () => {
     const c = conversa();

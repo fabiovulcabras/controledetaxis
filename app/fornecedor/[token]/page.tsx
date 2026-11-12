@@ -6,7 +6,7 @@ import BrandMark from "@/components/BrandMark";
 import Prazo from "@/components/Prazo";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 
-type Item = { protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string; solicitante: string; valor: string | null; link: string; prazo_iso: string | null };
+type Item = { protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string; solicitante: string; valor: string | null; link: string; prazo_iso: string | null; observacoes?: string | null };
 type Dados = { fornecedor: string; responder: Item[]; em_curso: Item[]; encerradas: Item[]; total_periodo: string };
 
 /** Portal fixo do fornecedor: corridas para responder, em andamento e encerradas, cada uma com o link de ação. */
@@ -32,6 +32,7 @@ export default function Portal() {
             <div className="minha-corrida-topo"><span className="protocolo">{c.protocolo}</span><span className={`tag st-${c.status}`}>{c.status_rotulo}</span></div>
             <p>{c.quando} · {c.solicitante}</p>
             <p className="texto-fraco">{c.origem} → {c.destino}</p>
+            {c.observacoes && <p className="observacoes-corrida">Obs.: {c.observacoes}</p>}
             {c.prazo_iso && <Prazo ate={c.prazo_iso} />}
             {c.valor && <p><strong>{c.valor}</strong></p>}
           </Link>

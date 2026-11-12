@@ -19,7 +19,7 @@ import { valorEsperado } from "@/lib/bot/acoes";
 
 type Corrida = {
   id: string; protocolo: string; status: StatusCorrida; tipo: string; data_hora_prevista: string; criado_em: string;
-  origem: string; destino: string; qtd_passageiros: number; outros_passageiros: string | null; motivo: string;
+  origem: string; destino: string; qtd_passageiros: number; outros_passageiros: string | null; motivo: string; observacoes?: string | null;
   motorista: string | null; veiculo_placa: string | null; eta_minutos: number | null;
   valor_informado: number | null; valor_faturado: number | null; prazo_resposta_em: string | null;
   motivo_recusa: string | null; motivo_cancelamento: string | null; distancia_km?: number | null;
@@ -118,20 +118,20 @@ export default function Corridas() {
 
   const exportar = async () => {
     setExportando(true);
-    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
+    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,observacoes,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
     setExportando(false);
     if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
     const linhas = (data ?? []) as any[];
     baixarXlsx(`corridas-${de}-a-${ate}.xlsx`, "Corridas", [
       { titulo: "Protocolo", largura: 16 }, { titulo: "Data/hora", largura: 14 }, { titulo: "Tipo", largura: 10 }, { titulo: "Solicitante", largura: 22 },
       { titulo: "Setor", largura: 14 }, { titulo: "Origem", largura: 36 }, { titulo: "Destino", largura: 36 }, { titulo: "Passageiros", formato: "inteiro", largura: 11 },
-      { titulo: "Motivo", largura: 20 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
+      { titulo: "Motivo", largura: 20 }, { titulo: "Observações", largura: 30 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
       { titulo: "Motorista", largura: 18 }, { titulo: "Placa", largura: 10 }, { titulo: "Distância (km)", formato: "decimal", largura: 13 },
       { titulo: "Valor tabela", formato: "moeda", largura: 13 }, { titulo: "Item da tabela", largura: 34 },
       { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
     ], linhas.map((c) => [
       c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
-      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
+      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.observacoes, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km),
       c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao, c.valor_informado == null ? null : Number(c.valor_informado),
       c.valor_faturado == null ? null : Number(c.valor_faturado),
@@ -351,6 +351,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Destino</dt><dd>{c.destino}</dd>
             <dt>Passageiros</dt><dd>{c.qtd_passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
             <dt>Motivo</dt><dd>{c.motivo}</dd>
+            {c.observacoes && <><dt>Observações</dt><dd className="observacoes-corrida">{c.observacoes}</dd></>}
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa ? formatarPlaca(c.veiculo_placa) : null, c.eta_minutos != null ? `chegada em ${c.eta_minutos} min após o aceite` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado (a corrida só é confirmada com motorista, placa e horário)</span>}</dd>
             {c.distancia_km != null && <><dt>Distância estimada</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</dd></>}
