@@ -4,7 +4,7 @@ import { despacharSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 import { linkWhatsApp, msgNovaCorridaFornecedor, urlApp } from "@/lib/whatsapp/link";
 import { dentroDoLimite, ipDe, muitasTentativas, repoServidor, solicitantePorToken, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
-import { CANCELAVEIS, STATUS } from "@/lib/status";
+import { CANCELAVEIS_SOLICITANTE, STATUS } from "@/lib/status";
 import { formatarDataHora } from "@/lib/datas";
 import { distanciaTrajeto } from "@/lib/distancia";
 import { locaisDoPedido } from "@/lib/locais";
@@ -54,7 +54,7 @@ export async function GET(req: Request) {
         id: c.id, protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as keyof typeof STATUS]?.rotulo ?? c.status,
         quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: c.destino, fornecedor: c.fornecedores?.nome ?? null,
         motorista: [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") || null,
-        pode_cancelar: CANCELAVEIS.includes(c.status),
+        pode_cancelar: CANCELAVEIS_SOLICITANTE.includes(c.status),
         // Para o botão "Repetir": refaz o formulário com os mesmos dados
         repetir: {
           origem: c.origem, origem_lat: num(c.origem_lat), origem_lng: num(c.origem_lng), destino: c.destino, destino_lat: num(c.destino_lat), destino_lng: num(c.destino_lng),

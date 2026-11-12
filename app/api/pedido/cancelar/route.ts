@@ -4,7 +4,7 @@ import { despacharSaidas } from "@/lib/whatsapp/transporte";
 import { linkWhatsApp, msgCancelamentoFornecedor } from "@/lib/whatsapp/link";
 import { dentroDoLimite, muitasTentativas, repoServidor, solicitantePorToken, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
-import { CANCELAVEIS } from "@/lib/status";
+import { CANCELAVEIS_SOLICITANTE } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,9 @@ export async function POST(req: Request) {
     const repo = repoServidor();
     const c = await repo.corrida(String(corpo.corrida_id ?? ""));
     if (!c || c.solicitante_id !== sol.id) return erroJson("Corrida não encontrada.", 404);
-    if (!CANCELAVEIS.includes(c.status)) return erroJson("Esta corrida não pode mais ser cancelada.");
+    if (!CANCELAVEIS_SOLICITANTE.includes(c.status)) {
+      return erroJson(c.status === "em_andamento" ? "O passageiro já embarcou; a corrida não pode mais ser cancelada. Se houve algum problema, fale com o planejamento." : "Esta corrida não pode mais ser cancelada.");
+    }
     const antes = c.status;
     const r = await cancelarCorrida(repo, c, motivo, "bot");
     await despacharSaidas(supabaseAdmin(), r.saidas);

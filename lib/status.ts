@@ -35,7 +35,12 @@ const TRANSICOES: Record<StatusCorrida, StatusCorrida[]> = {
 
 export const transicaoValida = (de: StatusCorrida, para: StatusCorrida) => TRANSICOES[de].includes(para);
 
-/** Status em que a corrida ainda pode ser cancelada pelo solicitante ou pelo planejamento. */
+/** Status em que o planejamento ainda pode cancelar a corrida (no painel). */
 export const CANCELAVEIS: StatusCorrida[] = ["solicitada", "enviada", "aceita", "recusada", "sem_resposta", "em_andamento"];
+/**
+ * Status em que o próprio solicitante pode cancelar: até o fornecedor confirmar o embarque.
+ * Inclui a corrida já aceita (ex.: desistiu da hora extra, achou carona); o fornecedor é avisado.
+ */
+export const CANCELAVEIS_SOLICITANTE: StatusCorrida[] = ["solicitada", "enviada", "aceita", "recusada", "sem_resposta"];
 /** Status que pedem atenção do planejamento. */
 export const EXCECOES: StatusCorrida[] = ["recusada", "sem_resposta", "contestada"];

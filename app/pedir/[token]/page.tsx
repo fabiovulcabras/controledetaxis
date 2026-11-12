@@ -207,6 +207,7 @@ export default function Pedir() {
                   <button type="button" className="ghost" onClick={() => setCancelando(null)}>Voltar</button>
                 </form>
               ) : <div className="row"><button type="button" className="ghost botao-perigo" onClick={() => { setCancelando(c.id); setMotivoCancel(""); }}>Cancelar</button></div>)}
+              {c.status === "em_andamento" && <p className="texto-fraco" style={{ fontSize: 13, margin: "6px 0 0" }}>O passageiro já embarcou: a corrida não pode mais ser cancelada.</p>}
             </article>
           ))}
         </div>

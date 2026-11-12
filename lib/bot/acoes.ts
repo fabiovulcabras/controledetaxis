@@ -1,3 +1,4 @@
+import { normalizarTelefone } from "../telefone";
 import type { Corrida, Fornecedor, Repo, Saida } from "./tipos";
 import type { OrigemEvento } from "../status";
 import { brl, formatarDataHora, formatarHora } from "../datas";
@@ -156,6 +157,10 @@ export async function cancelarCorrida(repo: Repo, c: Corrida, motivo: string, or
   if (c.fornecedor_id && ["enviada", "aceita", "em_andamento", "sem_resposta"].includes(antes) && origem !== "fornecedor") {
     const forn = await repo.fornecedor(c.fornecedor_id);
     if (forn) {
+      // Fornecedor no meio dos dados do motorista ou esperando o embarque: a conversa desta corrida acaba
+      const tel = normalizarTelefone(forn.telefone_whatsapp);
+      const conv = await repo.conversa(tel);
+      if (conv?.dados?.corrida_id === c.id) await repo.apagarConversa(tel);
       const parametros = [c.protocolo, formatarDataHora(c.data_hora_prevista), c.origem, motivo];
       saidas.push({ para: forn.telefone_whatsapp, corridaId: c.id, texto: textoTemplate("corrida_cancelada_fornecedor", parametros), template: { nome: "corrida_cancelada_fornecedor", parametros, sempre: true } });
     }

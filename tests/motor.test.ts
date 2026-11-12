@@ -902,3 +902,33 @@ describe("dados do motorista em passos", () => {
     expect(nomeValido("x")).toBeNull();
   });
 });
+
+describe("cancelamento pelo solicitante", () => {
+  const aceitar = async (c: ReturnType<typeof conversa>) => {
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, ABC1234, 10h00" });
+  };
+  it("pode cancelar depois do aceite: fornecedor avisado e a conversa dele encerrada", async () => {
+    const c = conversa();
+    await aceitar(c);
+    await c.enviar({ telefone: ANA, texto: "menu" });
+    await c.enviar({ telefone: ANA, botaoId: "cancelar" });
+    await c.enviar({ telefone: ANA, botaoId: "cancelar:c1" });
+    const s = await c.enviar({ telefone: ANA, texto: "Não vou mais ficar na hora extra" });
+    expect(c.repo.corridas[0].status).toBe("cancelada");
+    expect(ultima(s, ANA).texto).toContain("O fornecedor foi avisado");
+    expect(ultima(s, RTC).template?.nome).toBe("corrida_cancelada_fornecedor");
+    expect(await c.repo.conversa(RTC)).toBeNull();
+  });
+  it("depois do embarque não pode mais cancelar", async () => {
+    const c = conversa();
+    await aceitar(c);
+    await c.enviar({ telefone: RTC, botaoId: "EMBARCOU:TX-2026-00001" });
+    await c.enviar({ telefone: ANA, texto: "menu" });
+    const lista = await c.enviar({ telefone: ANA, botaoId: "cancelar" });
+    // A corrida em andamento nem aparece entre as que podem ser canceladas
+    expect(JSON.stringify(ultima(lista, ANA))).not.toContain("TX-2026-00001");
+    expect(c.repo.corridas[0].status).toBe("em_andamento");
+  });
+});

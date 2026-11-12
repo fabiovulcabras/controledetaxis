@@ -1,6 +1,6 @@
 import { formatarHora, formatarPlaca, lerDadosMotorista, lerHorarioChegada, nomeValido, placaValida, textoChegada } from "../motorista";
 import type { Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
-import { CANCELAVEIS, STATUS } from "../status";
+import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
 import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
@@ -220,7 +220,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
           `${c.protocolo} · ${formatarDataHora(c.data_hora_prevista)}\n${c.destino}\n${STATUS[c.status].rotulo}`).join("\n\n"), MENU)];
       }
       if (op === "cancelar") {
-        const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((c) => CANCELAVEIS.includes(c.status)).slice(0, 10);
+        const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((c) => CANCELAVEIS_SOLICITANTE.includes(c.status)).slice(0, 10);
         if (!abertas.length) return menu("Você não tem corridas em aberto. O que você precisa?");
         return ir("cancelar_escolha", pergunta(tel, "Qual corrida você quer cancelar?",
           abertas.map((c) => ({ id: `cancelar:${c.id}`, titulo: c.protocolo, descricao: `${formatarDataHora(c.data_hora_prevista)} · ${c.destino}`.slice(0, 72) })), "Ver corridas"));
@@ -303,7 +303,11 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       const id = e.botaoId?.startsWith("cancelar:") ? e.botaoId.slice("cancelar:".length) : null;
       const c = id ? await repo.corrida(id) : e.texto ? await repo.corridaPorProtocolo(e.texto.toUpperCase()) : null;
       if (!c || c.solicitante_id !== sol.id) return invalida(pergunta(tel, "Toque em uma das corridas da lista ou envie o protocolo (ex.: TX-2026-00123)."));
-      if (!CANCELAVEIS.includes(c.status)) return menu(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}" e não pode mais ser cancelada.`);
+      if (!CANCELAVEIS_SOLICITANTE.includes(c.status)) {
+        return menu(c.status === "em_andamento"
+          ? `O passageiro da corrida ${c.protocolo} já embarcou, então ela não pode mais ser cancelada. Se houve algum problema, fale com o planejamento.`
+          : `A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}" e não pode mais ser cancelada.`);
+      }
       return ir("cancelar_motivo", pergunta(tel, `Por que cancelar a corrida ${c.protocolo}?`, OPCOES_MOTIVO_CANCEL), { corrida_id: c.id });
     }
 
@@ -312,9 +316,9 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       const motivo = op ? op.slice(3) : (e.texto ?? "").length >= 3 ? e.texto! : null;
       if (!motivo) return invalida(pergunta(tel, "Escolha ou escreva o motivo do cancelamento.", OPCOES_MOTIVO_CANCEL));
       const c = await repo.corrida(dados.corrida_id);
-      if (!c || !CANCELAVEIS.includes(c.status)) {
+      if (!c || !CANCELAVEIS_SOLICITANTE.includes(c.status)) {
         await repo.salvarConversa(tel, "menu", {}, agora);
-        return [...saidas, pergunta(tel, "Essa corrida não pode mais ser cancelada.", MENU)];
+        return [...saidas, pergunta(tel, c?.status === "em_andamento" ? "O passageiro já embarcou; a corrida não pode mais ser cancelada." : "Essa corrida não pode mais ser cancelada.", MENU)];
       }
       await encerrarConversa(repo, tel, agora);
       const r = await cancelarCorrida(repo, c, motivo, "bot");
