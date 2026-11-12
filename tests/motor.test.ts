@@ -65,7 +65,8 @@ describe("solicitação pelo WhatsApp", () => {
     expect(forn.template?.nome).toBe("nova_corrida_fornecedor");
     expect(forn.template?.sempre).toBe(true);
     expect(forn.template?.botoes).toEqual(["ACEITAR:TX-2026-00001", "RECUSAR:TX-2026-00001"]);
-    expect(ultima(s, PLAN).template?.nome).toBe("nova_corrida_planejamento");
+    // O planejamento não recebe aviso de cada corrida registrada (só exceções)
+    expect(para(s, PLAN)).toHaveLength(0);
   });
 
   it("resumo antes de confirmar mostra os dados escolhidos", async () => {

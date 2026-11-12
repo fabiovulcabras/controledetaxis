@@ -357,12 +357,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
     { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada. Enviamos ao fornecedor ${forn.nome} e avisaremos quando ele responder.` },
     ...saidas,
   ];
-  if (semAcento((await repo.parametro("avisar_planejamento_toda_corrida")) ?? "sim") !== "nao") {
-    resultado.push(...await avisarPlanejamento(repo, "nova_corrida_planejamento", [
-      enviada.protocolo, sol.nome, enviada.tipo === "imediata" ? "agora" : formatarDataHora(enviada.data_hora_prevista),
-      enviada.origem, enviada.destino, forn.nome,
-    ], enviada.id));
-  }
+  // O planejamento não recebe aviso de cada corrida registrada (só repetia o pedido); recebe só exceções e alertas
   return resultado;
 }
 

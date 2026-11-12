@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { escolherFornecedor, despachar, avisarPlanejamento, numero } from "@/lib/bot/acoes";
+import { escolherFornecedor, despachar, numero } from "@/lib/bot/acoes";
 import { despacharSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 import { linkWhatsApp, msgNovaCorridaFornecedor, urlApp } from "@/lib/whatsapp/link";
 import { dentroDoLimite, ipDe, muitasTentativas, repoServidor, solicitantePorToken, tokenValido } from "@/lib/links-api";
@@ -140,10 +140,8 @@ export async function POST(req: Request) {
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);
 
-    // Com a API oficial ligada, o envio é automático; sem ela, a pessoa envia pelo link (e-mails de aviso saem nos dois casos)
-    const avisarTodas = String((await repo.parametro("avisar_planejamento_toda_corrida")) ?? "sim").trim().toLowerCase() !== "nao";
-    const avisos = !avisarTodas ? [] : await avisarPlanejamento(repo, "nova_corrida_planejamento", [enviada.protocolo, sol.nome, tipo === "imediata" ? "agora" : formatarDataHora(enviada.data_hora_prevista), origem, destino, forn.nome], enviada.id);
-    await despacharSaidas(db, [...(envioAutomatico() ? saidas : []), ...avisos]);
+    // Com envio automático (Meta ou Evolution) a mensagem vai sozinha; sem ele, a pessoa envia pelo link
+    await despacharSaidas(db, envioAutomatico() ? saidas : []);
     return respostaPedido(req, enviada, sol.nome);
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);

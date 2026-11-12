@@ -142,14 +142,30 @@ async function enviarPelaEvolution(db: SupabaseClient, s: Saida): Promise<void> 
   const texto = textoComOpcoes(s);
   const r = await enviarTextoEvolution(s.para, texto);
   if (!r.ok) console.error("Falha ao enviar pela Evolution", { para: s.para, erro: r.erro });
-  if (r.ok) {
-    const { error } = await db.from("opcoes_enviadas").upsert({ telefone: normalizarTelefone(s.para), opcoes: s.opcoes?.length ? s.opcoes : null, enviado_em: new Date().toISOString() });
-    if (error) console.error("Falha ao guardar as opções enviadas (rodou a migração 006?)", error.message);
-  }
+  if (r.ok) await guardarOpcoes(db, normalizarTelefone(s.para), s.opcoes ?? null);
   const { error } = await db.from("mensagens").insert({
     direcao: "saida", canal: "evolution", telefone: s.para, corrida_id: s.corridaId ?? null, template: null,
     conteudo: { texto, opcoes: s.opcoes ?? null, rotuloLista: s.rotuloLista ?? null, parametros: null },
     wa_message_id: r.id ?? null, status_envio: r.ok ? "enviada" : "falhou", ...(r.erro ? { erro: r.erro } : {}),
   });
   if (error) console.error("Falha ao registrar mensagem enviada", error.message);
+}
+
+const ACAO_CORRIDA = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):/;
+
+/**
+ * Guarda as opções numeradas da última mensagem, para traduzir a resposta "1", "2"…
+ * Uma mensagem sem opções (aviso, alerta) não apaga as opções de uma corrida pendente (Aceitar/Recusar,
+ * Embarcou/Não realizada) enviadas na última hora: o mesmo número pode receber avisos do planejamento
+ * no meio, e o "1" continua valendo para a corrida.
+ */
+async function guardarOpcoes(db: SupabaseClient, telefone: string, opcoes: Saida["opcoes"] | null): Promise<void> {
+  const agora = new Date();
+  if (!opcoes?.length) {
+    const { data } = await db.from("opcoes_enviadas").select("opcoes,enviado_em").eq("telefone", telefone).maybeSingle();
+    const daCorrida = Array.isArray(data?.opcoes) && data!.opcoes.some((o: any) => ACAO_CORRIDA.test(String(o?.id ?? "")));
+    if (daCorrida && agora.getTime() - new Date(data!.enviado_em).getTime() < 3600_000) return;
+  }
+  const { error } = await db.from("opcoes_enviadas").upsert({ telefone, opcoes: opcoes?.length ? opcoes : null, enviado_em: agora.toISOString() });
+  if (error) console.error("Falha ao guardar as opções enviadas (rodou a migração 006?)", error.message);
 }
