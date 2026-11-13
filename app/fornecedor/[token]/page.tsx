@@ -8,7 +8,8 @@ import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import NotificacoesPush from "@/components/NotificacoesPush";
 import LoginFornecedor from "@/components/LoginFornecedor";
 import { baixarXlsx } from "@/lib/xlsx";
-import { dataSP, partesSP } from "@/lib/datas";
+import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
+import { STATUS_ESPELHO, nomeCompetencia, type StatusEspelho } from "@/lib/espelho-status";
 
 const isoDia = (d: Date) => { const p = partesSP(d); return `${p.ano}-${String(p.mes).padStart(2, "0")}-${String(p.dia).padStart(2, "0")}`; };
 type Linha = { protocolo: string; data: string; hora: string; tipo: string; status: string; solicitante: string; setor: string | null; origem: string; destino: string; passageiros: number; motorista: string | null; placa: string | null; valor: number | null; observacoes: string | null };
@@ -34,6 +35,33 @@ async function baixarCorridas(token: string, de: string, ate: string): Promise<s
 }
 
 const dataBR = (iso: string) => iso.split("-").reverse().join("/");
+
+type EspelhoResumo = { id: string; competencia: string; status: StatusEspelho; total: number; versao: number; prazo_em: string | null };
+
+/** Espelhos do mês do fornecedor: o que pede ação (conferir, enviar NF) aparece em destaque. */
+function Fechamentos({ token }: { token: string }) {
+  const [lista, setLista] = useState<EspelhoResumo[]>([]);
+  useEffect(() => {
+    fetch(`/api/portal/espelhos?token=${token}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : { espelhos: [] }).then((j) => setLista(j.espelhos ?? [])).catch(() => null);
+  }, [token]);
+  if (!lista.length) return null;
+  return (
+    <section style={{ marginBottom: 20 }}>
+      <h3>Fechamentos do mês</h3>
+      <div className="minhas-corridas">
+        {lista.slice(0, 6).map((e) => {
+          const acao = e.status === "aguardando" || e.status === "aprovado";
+          return (
+            <Link key={e.id} href={`/fornecedor/${token}/espelho/${e.id}`} className="minha-corrida" style={{ textDecoration: "none", borderColor: acao ? "var(--gold)" : undefined }}>
+              <div className="minha-corrida-topo"><strong>Espelho {nomeCompetencia(e.competencia)}</strong><span className={`tag ${STATUS_ESPELHO[e.status].tag}`}>{STATUS_ESPELHO[e.status].portal}</span></div>
+              <p><strong>{brl(e.total)}</strong>{e.status === "aguardando" && e.prazo_em ? <> · responder até {formatarDataHora(e.prazo_em)}</> : null}</p>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 type Item = { protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string; solicitante: string; valor: string | null; link: string; prazo_iso: string | null; observacoes?: string | null };
 type Dados = { fornecedor: string; responder: Item[]; em_curso: Item[]; encerradas: Item[]; qtd_encerradas?: number; total_periodo: string; qtd_concluidas?: number };
@@ -107,6 +135,7 @@ export default function Portal() {
             </p>
             {aviso && <p className="texto-fraco" style={{ marginTop: 8 }}>{aviso}</p>}
           </section>
+          <Fechamentos token={token} />
           {lista("Para responder", d.responder, "Nenhuma corrida esperando resposta.", true)}
           {lista("Em andamento", d.em_curso, "Nenhuma corrida em andamento.")}
           {lista("Encerradas no período", d.encerradas, "Nenhuma corrida encerrada no período escolhido.", false, d.qtd_encerradas)}

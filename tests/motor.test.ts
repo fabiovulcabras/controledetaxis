@@ -1,6 +1,8 @@
 import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
 import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemFornecedor, entradasDoAparelho } from "../lib/acesso-fornecedor";
 import { textoPortal } from "../lib/portal-texto";
+import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
+import { erroArquivo } from "../lib/extras";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -1098,5 +1100,25 @@ describe("login do portal do fornecedor", () => {
     const t = textoPortal({ nome: "Táxi X", email: "x@taxi.com", codigo_acesso: "123456" }, "https://p/fornecedor/abc");
     expect(t).toContain("E-mail: x@taxi.com");
     expect(t).toContain("*123456*");
+  });
+});
+
+describe("espelho do mês", () => {
+  it("competência anterior no horário de São Paulo", () => {
+    expect(competenciaAnterior(new Date("2026-11-13T15:00:00Z"))).toBe("2026-10");
+    expect(competenciaAnterior(new Date("2026-01-01T02:00:00Z"))).toBe("2025-11"); // ainda 31/12 em SP
+    expect(competenciaAnterior(new Date("2026-01-01T04:00:00Z"))).toBe("2025-12");
+  });
+  it("glosa = informado + extras pedidos − valor final", () => {
+    expect(glosaItem({ valor_informado: 80, valor_base: 60, valor_final: 72.4 }, 42.4)).toBe(50);
+    expect(glosaItem({ valor_informado: null, valor_base: 60, valor_final: 60 }, 0)).toBe(0);
+    expect(glosaItem({ valor_informado: 50, valor_base: 60, valor_final: 60 }, 0)).toBe(0);
+  });
+  it("arquivo: foto ou PDF até 4 MB; NF só PDF", () => {
+    expect(erroArquivo({ size: 1000, type: "image/jpeg" })).toBe(null);
+    expect(erroArquivo({ size: 5 * 1024 * 1024, type: "image/jpeg" })).toMatch(/4 MB/);
+    expect(erroArquivo({ size: 1000, type: "image/jpeg" }, true)).toMatch(/PDF/);
+    expect(erroArquivo({ size: 1000, type: "application/pdf" }, true)).toBe(null);
+    expect(erroArquivo(null)).toMatch(/comprovante/);
   });
 });

@@ -65,6 +65,8 @@ export type Saida = {
   rotuloLista?: string;
   /** Sem "sempre": usado só se a janela de 24 h com o destinatário estiver fechada. */
   template?: UsoTemplate;
+  /** Caminho que a notificação push abre (ex.: espelho do mês). Sem ele, a corrida ou o portal. */
+  link?: string;
 };
 
 /** Acesso a dados usado pelo bot. Há uma versão com Supabase (produção) e outra em memória (testes). */

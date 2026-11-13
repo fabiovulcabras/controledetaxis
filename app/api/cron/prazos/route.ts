@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { enviarLembretes, verificarPrazos } from "@/lib/bot/acoes";
 import { despacharSaidas, enviarSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
+import { processarEspelhos } from "@/lib/espelho";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ export async function GET(req: Request) {
     const oficial = envioAutomatico();
     const prazos = await verificarPrazos(repo, agora, { reenviar: oficial });
     const lembretes = await enviarLembretes(repo, agora);
+    // Espelhos do mês: lembrete no 3º dia útil e aprovação tácita no fim do 5º
+    lembretes.push(...await processarEspelhos(db, agora));
     if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);
     else {
       await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica no histórico de mensagens da corrida

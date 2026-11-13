@@ -77,8 +77,8 @@ export async function notificarPush(db: SupabaseClient, saidas: Saida[]): Promis
     if (so) adicionar("solicitante", lista.filter((i) => i.solicitante_id === so.id), `/pedir/${so.token_pedido}`);
     const fo = fornPorFone.get(fone) as any;
     if (fo) adicionar("fornecedor", lista.filter((i) => i.fornecedor_id === fo.id),
-      c && c.fornecedor_id === fo.id && c.token_fornecedor ? `/f/${c.token_fornecedor}` : `/fornecedor/${fo.token_portal}`);
-    if (planejamento.has(fone)) adicionar("planejamento", lista.filter((i) => i.tipo === "planejamento"), s.corridaId ? `/corridas?id=${s.corridaId}` : "/");
+      s.link?.startsWith("/fornecedor/") ? s.link : c && c.fornecedor_id === fo.id && c.token_fornecedor ? `/f/${c.token_fornecedor}` : `/fornecedor/${fo.token_portal}`);
+    if (planejamento.has(fone)) adicionar("planejamento", lista.filter((i) => i.tipo === "planejamento"), s.link && !s.link.startsWith("/fornecedor/") ? s.link : s.corridaId ? `/corridas?id=${s.corridaId}` : "/");
   }
 
   const resultados = await Promise.allSettled(envios.map(async ({ insc, dados }) => ({ insc, r: await enviarPush(insc, dados, chaves) })));

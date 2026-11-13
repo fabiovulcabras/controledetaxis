@@ -12,6 +12,8 @@ import type { StatusCorrida } from "@/lib/status";
 import { chamarApi } from "@/lib/api";
 import { useApp } from "@/components/AuthGate";
 import ExtrasCorrida from "@/components/ExtrasCorrida";
+import Espelhos from "@/components/Espelhos";
+import { STATUS_ESPELHO, type StatusEspelho } from "@/lib/espelho-status";
 
 /** Valor de tabela da corrida, só quando foi calculado para o fornecedor da fatura. */
 const tabelaDoItem = (i: Item, fornecedorId: string) =>
@@ -44,12 +46,12 @@ type Visao = "todos" | "pendentes" | "problemas" | "conciliados";
 const STATUS_FATURA: Record<string, string> = { importada: "Importada", em_conciliacao: "Em conciliação", conciliada: "Conciliada" };
 const nomeCompetencia = (c: string) => { const [a, m] = c.split("-"); return `${m}/${a}`; };
 
-type Aba = "extras" | "faturas";
-const ABAS: [Aba, string][] = [["extras", "Extras pendentes"], ["faturas", "Faturas importadas"]];
+type Aba = "espelhos" | "extras" | "faturas";
+const ABAS: [Aba, string][] = [["espelhos", "Espelhos do mês"], ["extras", "Extras pendentes"], ["faturas", "Faturas importadas"]];
 
 export default function Conciliacao() {
   const { planejamento } = useApp();
-  const [aba, setAba] = useState<Aba>("extras");
+  const [aba, setAba] = useState<Aba>("espelhos");
   useEffect(() => {
     const h = window.location.hash.slice(1) as Aba;
     if (ABAS.some(([a]) => a === h)) setAba(h);
@@ -60,6 +62,7 @@ export default function Conciliacao() {
       <nav className="abas" aria-label="Conciliação">
         {ABAS.map(([a, rotulo]) => <button key={a} type="button" className={aba === a ? "ativa" : ""} onClick={() => trocar(a)}>{rotulo}</button>)}
       </nav>
+      {aba === "espelhos" && <Espelhos podeAgir={planejamento} />}
       {aba === "extras" && <>
         <TopoPagina titulo="Extras pendentes" subtitulo="Pedágio, espera, km a mais e paradas lançados pelos fornecedores, com comprovante. Decida todos os extras do mês antes de gerar o espelho." />
         <section className="card"><ExtrasCorrida podeAgir={planejamento} /></section>
@@ -120,6 +123,7 @@ function FaturasImportadas() {
 
 function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => void }) {
   const [itens, setItens] = useState<Item[]>([]);
+  const [espelho, setEspelho] = useState<{ id: string; status: string; total: number; valores: Map<string, number> } | null>(null);
   const [naoFaturadas, setNaoFaturadas] = useState<{ id: string; protocolo: string; data_hora_prevista: string; valor_informado: number | null; destino: string }[]>([]);
   const [visao, setVisao] = useState<Visao>("pendentes");
   const [contestando, setContestando] = useState<string | null>(null);
@@ -141,6 +145,9 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
       .eq("fornecedor_id", fatura.fornecedor_id).in("status", ["concluida", "validada", "contestada"])
       .gte("data_hora_prevista", inicio.toISOString()).lt("data_hora_prevista", fim.toISOString());
     const faturadas = new Set(lista.map((i) => i.corrida_id).filter(Boolean));
+    // Espelho do mesmo fornecedor e mês: a planilha do fornecedor é conferida contra o valor final aprovado
+    const { data: esp } = await supabase.from("espelhos").select("id,status,total,espelho_itens(corrida_id,valor_final)").eq("fornecedor_id", fatura.fornecedor_id).eq("competencia", fatura.competencia).maybeSingle();
+    setEspelho(esp ? { id: esp.id, status: esp.status, total: Number(esp.total), valores: new Map(((esp as any).espelho_itens ?? []).map((i: any) => [i.corrida_id, Number(i.valor_final)])) } : null);
     setNaoFaturadas((corridas ?? []).filter((c: any) => !faturadas.has(c.id)) as any);
   };
   useEffect(() => { void carregar(); }, [fatura.id]);
@@ -216,6 +223,17 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
         <KpiCard value={brl(resumo.contestar)} label="A contestar" />
       </div>
 
+      {espelho && (() => {
+        const fora = itens.filter((i) => !i.corrida_id || !espelho.valores.has(i.corrida_id)).length;
+        const dif = itens.reduce((s, i) => s + (i.corrida_id && espelho.valores.has(i.corrida_id) ? Number(i.valor) - espelho.valores.get(i.corrida_id)! : 0), 0);
+        return (
+          <p className={Math.abs(resumo.total - espelho.total) >= 0.01 || fora ? "err" : "ok"}>
+            Espelho de {nomeCompetencia(fatura.competencia)} ({STATUS_ESPELHO[espelho.status as StatusEspelho]?.rotulo ?? espelho.status}): {brl(espelho.total)}. Esta planilha: {brl(resumo.total)}
+            {Math.abs(resumo.total - espelho.total) >= 0.01 ? ` (diferença de ${brl(resumo.total - espelho.total)})` : " — bate com o espelho"}.
+            {fora ? ` ${fora} linha(s) fora do espelho.` : ""}{Math.abs(dif) >= 0.01 ? ` Nas corridas do espelho, a planilha cobra ${brl(dif)} ${dif > 0 ? "a mais" : "a menos"}.` : ""}
+          </p>
+        );
+      })()}
       <div className="repor-filtros">
         <Filtros<Visao> rotulo="Itens" valor={visao} onChange={setVisao} opcoes={[
           ["pendentes", "Sem decisão", itens.filter((i) => !i.decisao).length], ["problemas", "Com problema", itens.filter((i) => i.situacao !== "conciliado").length],
@@ -224,7 +242,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
       </div>
       <div className="tw">
         <table>
-          <thead><tr><th>Data</th><th>Protocolo na fatura</th><th>Corrida</th><th className="num">Faturado</th><th className="num">Informado</th><th className="num">Tabela</th><th>Situação</th><th>Decisão</th></tr></thead>
+          <thead><tr><th>Data</th><th>Protocolo na fatura</th><th>Corrida</th><th className="num">Faturado</th><th className="num">Informado</th><th className="num">Tabela</th>{espelho && <th className="num">Espelho</th>}<th>Situação</th><th>Decisão</th></tr></thead>
           <tbody>
             {filtrados.map((i) => {
               const dif = i.corridas?.valor_informado != null ? Number(i.valor) - Number(i.corridas.valor_informado) : null;
@@ -238,6 +256,10 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
                   <td className="num">{brl(i.valor)}</td>
                   <td className="num">{brl(i.corridas?.valor_informado)}{dif != null && Math.abs(dif) >= 0.01 && <small className={`bloco ${dif > 0 ? "negative" : "positive"}`}>{dif > 0 ? "+" : ""}{brl(dif)}</small>}</td>
                   <td className="num">{tab != null ? <>{brl(tab)}{difTab != null && difTab >= 0.01 && <small className="bloco negative">+{brl(difTab)}</small>}</> : <span className="texto-fraco">{i.corridas ? "—" : ""}</span>}</td>
+                  {espelho && <td className="num">{i.corrida_id && espelho.valores.has(i.corrida_id) ? (() => {
+                    const v = espelho.valores.get(i.corrida_id)!; const d = Number(i.valor) - v;
+                    return <>{brl(v)}{Math.abs(d) >= 0.01 && <small className={`bloco ${d > 0 ? "negative" : "positive"}`}>{d > 0 ? "+" : ""}{brl(d)}</small>}</>;
+                  })() : <small className="texto-fraco">Fora do espelho</small>}</td>}
                   <td><SituacaoTag situacao={i.situacao} /></td>
                   <td style={{ minWidth: 200 }}>
                     {i.decisao ? (
