@@ -14,10 +14,33 @@ export type ChavesVapid = { publica: string; privada: string; assunto: string };
 export const b64url = (b: Buffer | Uint8Array) => Buffer.from(b).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 export const deB64url = (t: string) => Buffer.from(t.replace(/-/g, "+").replace(/_/g, "/"), "base64");
 
+/** Limpa o valor colado na Vercel: espaços, aspas e quebras de linha. */
+const limpar = (v: string | undefined) => String(v ?? "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, "");
+
+/**
+ * "sub" do VAPID precisa ser mailto: ou https:// (a Apple recusa com BadJwtToken).
+ * Aceita só o e-mail ("ana@empresa.com") e completa com mailto:.
+ */
+export function assuntoVapid(v: string | undefined): string {
+  const t = limpar(v).replace(/^mailto:/i, "mailto:");
+  if (/^mailto:[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t) || /^https:\/\/[^\s]+$/.test(t)) return t;
+  if (/^[^@\s:]+@[^@\s]+\.[^@\s]+$/.test(t)) return `mailto:${t}`;
+  return "mailto:planejamento@exemplo.com.br";
+}
+
 export function chavesVapid(): ChavesVapid | null {
-  const publica = process.env.VAPID_PUBLIC_KEY, privada = process.env.VAPID_PRIVATE_KEY;
+  const publica = limpar(process.env.VAPID_PUBLIC_KEY), privada = limpar(process.env.VAPID_PRIVATE_KEY);
   if (!publica || !privada) return null;
-  return { publica, privada, assunto: process.env.VAPID_SUBJECT || "mailto:planejamento@exemplo.com" };
+  return { publica, privada, assunto: assuntoVapid(process.env.VAPID_SUBJECT) };
+}
+
+/** A chave pública é mesmo do par da privada? (copiar de dois pares diferentes causa BadJwtToken / 403) */
+export function chavesConferem(ch: { publica: string; privada: string }): boolean {
+  try {
+    const e = createECDH("prime256v1");
+    e.setPrivateKey(deB64url(ch.privada));
+    return b64url(e.getPublicKey()) === ch.publica;
+  } catch { return false; }
 }
 
 /** Novo par de chaves VAPID (P-256): pública 65 bytes (não comprimida) e privada 32 bytes, em base64url. */

@@ -32,9 +32,28 @@ export default function NotificacoesPush({ tipo, token, compacto }: { tipo: Tipo
       if (Notification.permission === "denied") { setEstado("bloqueado"); return; }
       const reg = await registro();
       const insc = await reg.pushManager.getSubscription();
-      setEstado(insc && Notification.permission === "granted" ? "ligado" : "desligado");
+      const ligado = !!insc && Notification.permission === "granted";
+      setEstado(ligado ? "ligado" : "desligado");
+      // Chaves do servidor trocadas: refaz a inscrição sozinho, sem a pessoa precisar fazer nada
+      if (ligado && insc) {
+        const chave = await fetch("/api/push/chave").then((r) => r.json()).catch(() => ({}));
+        if (chave.publica && !mesmaChave(insc, chave.publica)) await reinscrever(reg, insc, chave.publica).catch(() => setEstado("desligado"));
+      }
     })().catch(() => setEstado("sem_suporte"));
   }, []);
+
+  const mesmaChave = (insc: PushSubscription, publica: string) => {
+    const atual = insc.options?.applicationServerKey;
+    if (!atual) return true; // navegador não informa: não mexe
+    const a = new Uint8Array(atual), b = paraBytes(publica);
+    return a.length === b.length && a.every((x, i) => x === b[i]);
+  };
+  const reinscrever = async (reg: ServiceWorkerRegistration, antiga: PushSubscription, publica: string) => {
+    await fetch("/api/push/sair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: antiga.endpoint }) });
+    await antiga.unsubscribe();
+    const nova = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: paraBytes(publica) });
+    await fetch("/api/push/inscrever", { method: "POST", headers: await cabecalhos(), body: JSON.stringify({ inscricao: nova.toJSON(), tipo, token }) });
+  };
 
   const cabecalhos = async (): Promise<Record<string, string>> => {
     const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -55,6 +74,7 @@ export default function NotificacoesPush({ tipo, token, compacto }: { tipo: Tipo
       const reg = await registro();
       await navigator.serviceWorker.ready;
       let insc = await reg.pushManager.getSubscription();
+      if (insc && !mesmaChave(insc, chave.publica)) { await insc.unsubscribe(); insc = null; }
       if (!insc) insc = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: paraBytes(chave.publica) });
       const r = await fetch("/api/push/inscrever", { method: "POST", headers: await cabecalhos(), body: JSON.stringify({ inscricao: insc.toJSON(), tipo, token }) });
       const j = await r.json().catch(() => ({}));

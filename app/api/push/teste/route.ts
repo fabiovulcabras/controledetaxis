@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { dentroDoLimite, muitasTentativas } from "@/lib/links-api";
 import { erroJson } from "@/lib/auth-api";
-import { chavesVapid, enviarPush } from "@/lib/webpush";
+import { chavesConferem, chavesVapid, enviarPush } from "@/lib/webpush";
 
 export const dynamic = "force-dynamic";
 
@@ -16,5 +16,12 @@ export async function POST(req: Request) {
   const { data: insc } = await supabaseAdmin().from("push_inscricoes").select("endpoint,p256dh,auth").eq("endpoint", endpoint).maybeSingle();
   if (!insc) return erroJson("Este aparelho não está inscrito.", 404);
   const r = await enviarPush(insc, { titulo: "Notificações ativas", corpo: "Tudo certo: você vai receber aqui o andamento das corridas.", url, tag: "teste" }, ch);
-  return r.ok ? Response.json({ ok: true }) : erroJson(`O serviço de notificações recusou (${r.erro}).`, 502);
+  if (r.ok) return Response.json({ ok: true });
+  if (r.status === 401 || r.status === 403 || /BadJwtToken|credentials|VAPID/i.test(r.erro ?? "")) {
+    const motivo = !chavesConferem(ch)
+      ? "VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY na Vercel não são do mesmo par: copie as duas da mesma abertura de /api/push/gerar-chaves e faça redeploy."
+      : "este aparelho foi inscrito com chaves antigas. Toque em Desativar e depois em Ativar notificações.";
+    return erroJson(`O serviço de notificações recusou a identificação do servidor: ${motivo}`, 502);
+  }
+  return erroJson(`O serviço de notificações recusou (${r.erro}).`, 502);
 }
