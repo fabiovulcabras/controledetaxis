@@ -528,7 +528,7 @@ th.num { text-align: right; }
 .tag.st-recusada, .tag.st-sem_resposta, .tag.st-contestada { background: var(--red-bg); color: var(--red-700); }
 .tag.st-validada { background: var(--green-bg); color: var(--green-800); }
 .tag.sit-conciliado { background: var(--green-bg); color: var(--green-800); }
-.tag.sit-divergente, .tag.sit-sem_valor { background: var(--amber-bg); color: var(--amber-900); }
+.tag.sit-divergente, .tag.sit-sem_valor, .tag.sit-acima_tabela { background: var(--amber-bg); color: var(--amber-900); }
 .tag.sit-sem_protocolo, .tag.sit-cancelada, .tag.sit-duplicado, .tag.sit-outro_fornecedor { background: var(--red-bg); color: var(--red-700); }
 .trajeto { min-width: 220px; }
 .trajeto small { display: block; color: var(--slate-500); }

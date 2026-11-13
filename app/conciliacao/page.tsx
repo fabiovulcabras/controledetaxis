@@ -9,12 +9,34 @@ import { brl, competencia, dataSP, formatarData, formatarDataHora } from "@/lib/
 import { gerarCsv, lerFaturaCsv, lerFaturaLinhas, type ItemFatura } from "@/lib/csv";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import type { StatusCorrida } from "@/lib/status";
+import { chamarApi } from "@/lib/api";
+
+/** Valor de tabela da corrida, só quando foi calculado para o fornecedor da fatura. */
+const tabelaDoItem = (i: Item, fornecedorId: string) =>
+  i.corridas && i.corridas.valor_tabela != null && i.corridas.preco_fornecedor_id === fornecedorId ? Number(i.corridas.valor_tabela) : null;
+
+/**
+ * Cruza a fatura e, para as corridas cruzadas que ainda não têm valor de tabela calculado para este fornecedor,
+ * calcula pela tabela de preços e cruza de novo. Devolve quantas corridas foram calculadas.
+ */
+async function cruzarComTabela(faturaId: string, fornecedorId: string): Promise<number> {
+  const cruzar = async () => { const { error } = await supabase.rpc("fn_conciliar_fatura", { p_fatura: faturaId }); if (error) throw new Error(error.message); };
+  await cruzar();
+  const { data } = await supabase.from("fatura_itens").select("corridas(id,fornecedor_id,preco_fornecedor_id,preco_calculado_em)").eq("fatura_id", faturaId);
+  const faltam = [...new Set((data ?? []).map((l: any) => l.corridas).filter((c: any) => c && c.fornecedor_id === fornecedorId && (!c.preco_calculado_em || c.preco_fornecedor_id !== fornecedorId)).map((c: any) => c.id as string))];
+  let n = 0;
+  for (const id of faltam.slice(0, 300)) {
+    try { await chamarApi("/api/corridas/acao", { corridaId: id, acao: "recalcular_preco" }); n++; } catch { /* segue: a corrida fica sem tabela */ }
+  }
+  if (n) await cruzar();
+  return n;
+}
 
 type Fatura = { id: string; fornecedor_id: string; competencia: string; numero_nf: string | null; valor_total: number; status: string; criado_em: string; fornecedores?: { nome: string } | null };
 type Item = {
   id: string; data_corrida: string | null; protocolo_informado: string | null; descricao: string | null; valor: number;
   corrida_id: string | null; situacao: string | null; decisao: "aceito" | "contestado" | null; observacao: string | null;
-  corridas?: { id: string; protocolo: string; destino: string; status: StatusCorrida; valor_informado: number | null; solicitantes?: { nome: string } | null } | null;
+  corridas?: { id: string; protocolo: string; destino: string; status: StatusCorrida; fornecedor_id: string | null; valor_informado: number | null; valor_tabela: number | null; preco_fornecedor_id: string | null; preco_calculado_em: string | null; preco_descricao: string | null; solicitantes?: { nome: string } | null } | null;
 };
 type Visao = "todos" | "pendentes" | "problemas" | "conciliados";
 const STATUS_FATURA: Record<string, string> = { importada: "Importada", em_conciliacao: "Em conciliação", conciliada: "Conciliada" };
@@ -41,7 +63,7 @@ export default function Conciliacao() {
 
   return (
     <>
-      <TopoPagina titulo="Conciliação" subtitulo="Importe a fatura do fornecedor e cruze cada cobrança com o protocolo da corrida.">
+      <TopoPagina titulo="Conciliação" subtitulo="Importe a fatura do fornecedor e cruze cada cobrança com o protocolo da corrida, o valor informado e a tabela de preços.">
         <button type="button" className="pri" onClick={() => setImportando(true)}>+ Importar fatura</button>
       </TopoPagina>
       {err && <div className="err">{err}</div>}
@@ -81,7 +103,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
 
   const carregar = async () => {
     const { data, error } = await supabase.from("fatura_itens")
-      .select("*, corridas(id,protocolo,destino,status,valor_informado,solicitantes(nome))")
+      .select("*, corridas(id,protocolo,destino,status,fornecedor_id,valor_informado,valor_tabela,preco_fornecedor_id,preco_calculado_em,preco_descricao,solicitantes(nome))")
       .eq("fatura_id", fatura.id).order("data_corrida", { nullsFirst: false });
     if (error) setErr(error.message);
     const lista = (data ?? []) as Item[];
@@ -114,18 +136,20 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
       total: itens.reduce((s, i) => s + Number(i.valor), 0),
       conciliados: por("conciliado"),
       divergentes: por("divergente") + por("sem_valor"),
-      problemas: problemas.length - por("divergente") - por("sem_valor"),
+      acimaTabela: por("acima_tabela"),
+      excessoTabela: itens.filter((i) => i.situacao === "acima_tabela").reduce((s, i) => s + Math.max(0, Number(i.valor) - (tabelaDoItem(i, fatura.fornecedor_id) ?? Number(i.valor))), 0),
+      problemas: problemas.length - por("divergente") - por("sem_valor") - por("acima_tabela"),
       contestar: itens.filter((i) => i.decisao === "contestado" || (!i.decisao && i.situacao && i.situacao !== "conciliado")).reduce((s, i) => s + Number(i.valor), 0),
       pendentesConciliados: itens.filter((i) => i.situacao === "conciliado" && !i.decisao),
     };
-  }, [itens]);
+  }, [itens, fatura.fornecedor_id]);
 
   const filtrados = itens.filter((i) => visao === "todos" ? true : visao === "pendentes" ? !i.decisao : visao === "conciliados" ? i.situacao === "conciliado" : i.situacao !== "conciliado");
 
   const exportar = () => {
     const linhas = itens.filter((i) => i.decisao === "contestado" || (!i.decisao && i.situacao !== "conciliado"));
-    const csv = gerarCsv([["Data", "Protocolo", "Descrição", "Valor faturado", "Valor informado", "Situação", "Motivo"],
-      ...linhas.map((i) => [i.data_corrida ? formatarData(`${i.data_corrida}T12:00:00Z`) : "", i.protocolo_informado, i.descricao, Number(i.valor), i.corridas?.valor_informado ?? null, SITUACOES[i.situacao ?? ""] ?? "", i.observacao])]);
+    const csv = gerarCsv([["Data", "Protocolo", "Descrição", "Valor faturado", "Valor informado", "Valor de tabela", "Situação", "Motivo"],
+      ...linhas.map((i) => [i.data_corrida ? formatarData(`${i.data_corrida}T12:00:00Z`) : "", i.protocolo_informado, i.descricao, Number(i.valor), i.corridas?.valor_informado ?? null, tabelaDoItem(i, fatura.fornecedor_id), SITUACOES[i.situacao ?? ""] ?? "", i.observacao])]);
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a");
     a.href = url; a.download = `contestacao-${fatura.fornecedores?.nome ?? "fornecedor"}-${fatura.competencia}.csv`.replace(/\s+/g, "-");
@@ -140,7 +164,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
           <p className="pagina-sub">{fatura.numero_nf ? `NF ${fatura.numero_nf} · ` : ""}importada em {formatarDataHora(fatura.criado_em)}</p>
         </div>
         <div className="row">
-          <button type="button" className="ghost" disabled={ocupado} onClick={() => acao(() => rpc("fn_conciliar_fatura", { p_fatura: fatura.id }), "Conciliação refeita.")}>Refazer cruzamento</button>
+          <button type="button" className="ghost" disabled={ocupado} onClick={() => { let n = 0; void acao(async () => { n = await cruzarComTabela(fatura.id, fatura.fornecedor_id); }, "Conciliação refeita.").then(() => n && setOk(`Conciliação refeita. Valor de tabela calculado para ${n} corrida(s).`)); }}>Refazer cruzamento</button>
           <button type="button" className="ghost" disabled={ocupado} onClick={exportar}>Exportar contestação</button>
           {resumo.pendentesConciliados.length > 0 && (
             <button type="button" className="pri" disabled={ocupado} onClick={() => acao(async () => {
@@ -160,6 +184,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
         <KpiCard value={brl(resumo.total)} label="Total faturado" />
         <KpiCard value={resumo.conciliados} label="Conciliados" />
         <KpiCard value={resumo.divergentes} label="Valor divergente ou sem valor" alert={resumo.divergentes > 0} />
+        <KpiCard value={resumo.acimaTabela} label={resumo.acimaTabela ? `Acima da tabela (${brl(resumo.excessoTabela)} a mais)` : "Acima da tabela"} alert={resumo.acimaTabela > 0} />
         <KpiCard value={resumo.problemas} label="Sem protocolo, cancelada ou duplicada" alert={resumo.problemas > 0} />
         <KpiCard value={brl(resumo.contestar)} label="A contestar" />
       </div>
@@ -168,14 +193,16 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
         <Filtros<Visao> rotulo="Itens" valor={visao} onChange={setVisao} opcoes={[
           ["pendentes", "Sem decisão", itens.filter((i) => !i.decisao).length], ["problemas", "Com problema", itens.filter((i) => i.situacao !== "conciliado").length],
           ["conciliados", "Conciliados", resumo.conciliados], ["todos", "Todos", itens.length]]} />
-        <span className="texto-fraco">Tolerância de valor nos parâmetros (padrão: 5% ou R$ 5,00, o maior).</span>
+        <span className="texto-fraco">Confere com o valor informado (tolerância: tolerancia_pct ou tolerancia_valor, o maior) e com a tabela de preços (tolerância: tolerancia_tabela_valor, padrão R$ 0,00).</span>
       </div>
       <div className="tw">
         <table>
-          <thead><tr><th>Data</th><th>Protocolo na fatura</th><th>Corrida</th><th className="num">Faturado</th><th className="num">Informado</th><th>Situação</th><th>Decisão</th></tr></thead>
+          <thead><tr><th>Data</th><th>Protocolo na fatura</th><th>Corrida</th><th className="num">Faturado</th><th className="num">Informado</th><th className="num">Tabela</th><th>Situação</th><th>Decisão</th></tr></thead>
           <tbody>
             {filtrados.map((i) => {
               const dif = i.corridas?.valor_informado != null ? Number(i.valor) - Number(i.corridas.valor_informado) : null;
+              const tab = tabelaDoItem(i, fatura.fornecedor_id);
+              const difTab = tab != null ? Number(i.valor) - tab : null;
               return (
                 <tr key={i.id}>
                   <td>{i.data_corrida ? formatarData(`${i.data_corrida}T12:00:00Z`).slice(0, 5) : "—"}</td>
@@ -183,6 +210,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
                   <td>{i.corridas ? <><Link href={`/corridas?id=${i.corridas.id}`} className="link-botao">{i.corridas.solicitantes?.nome ?? "—"}</Link><small className="bloco texto-fraco">{i.corridas.destino}</small><StatusTag status={i.corridas.status} /></> : <span className="texto-fraco">Não encontrada</span>}</td>
                   <td className="num">{brl(i.valor)}</td>
                   <td className="num">{brl(i.corridas?.valor_informado)}{dif != null && Math.abs(dif) >= 0.01 && <small className={`bloco ${dif > 0 ? "negative" : "positive"}`}>{dif > 0 ? "+" : ""}{brl(dif)}</small>}</td>
+                  <td className="num">{tab != null ? <>{brl(tab)}{difTab != null && difTab >= 0.01 && <small className="bloco negative">+{brl(difTab)}</small>}</> : <span className="texto-fraco">{i.corridas ? "—" : ""}</span>}</td>
                   <td><SituacaoTag situacao={i.situacao} /></td>
                   <td style={{ minWidth: 200 }}>
                     {i.decisao ? (
@@ -199,7 +227,7 @@ function DetalheFatura({ fatura, onMudou }: { fatura: Fatura; onMudou: () => voi
                     ) : (
                       <div className="segmentos">
                         <button type="button" disabled={ocupado} onClick={() => acao(() => rpc("fn_decidir_item", { p_item: i.id, p_decisao: "aceito", p_obs: null }), "Item aceito.")}>Aceitar</button>
-                        <button type="button" disabled={ocupado} onClick={() => { setContestando(i.id); setMotivo(i.situacao && i.situacao !== "conciliado" ? SITUACOES[i.situacao] : ""); }}>Contestar</button>
+                        <button type="button" disabled={ocupado} onClick={() => { setContestando(i.id); setMotivo(i.situacao === "acima_tabela" && tab != null ? `Acima da tabela (${brl(tab)})` : i.situacao && i.situacao !== "conciliado" ? SITUACOES[i.situacao] : ""); }}>Contestar</button>
                       </div>
                     )}
                   </td>
@@ -264,9 +292,9 @@ function Importar({ fornecedores, onFechar, onImportou }: { fornecedores: { id: 
     if (error || !fat) { setOcupado(false); setErr(error?.message ?? "Não foi possível criar a fatura."); return; }
     const { error: e2 } = await supabase.from("fatura_itens").insert(lido.itens.map((i) => ({ ...i, fatura_id: fat.id })));
     if (e2) { await supabase.from("faturas").delete().eq("id", fat.id); setOcupado(false); setErr(e2.message); return; }
-    const { error: e3 } = await supabase.rpc("fn_conciliar_fatura", { p_fatura: fat.id });
+    try { await cruzarComTabela(fat.id, fornecedorId); }
+    catch (e3) { setOcupado(false); setErr(`Fatura importada, mas o cruzamento falhou: ${e3 instanceof Error ? e3.message : e3}`); return; }
     setOcupado(false);
-    if (e3) { setErr(`Fatura importada, mas o cruzamento falhou: ${e3.message}`); return; }
     onImportou(fat.id);
   };
 

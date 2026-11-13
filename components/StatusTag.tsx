@@ -6,7 +6,7 @@ export function StatusTag({ status }: { status: StatusCorrida }) {
 
 export const SITUACOES: Record<string, string> = {
   conciliado: "Conciliado", divergente: "Valor divergente", sem_valor: "Sem valor informado", sem_protocolo: "Sem protocolo",
-  cancelada: "Corrida cancelada", duplicado: "Cobrança duplicada", outro_fornecedor: "Outro fornecedor",
+  cancelada: "Corrida cancelada", duplicado: "Cobrança duplicada", outro_fornecedor: "Outro fornecedor", acima_tabela: "Acima da tabela",
 };
 
 export function SituacaoTag({ situacao }: { situacao: string | null }) {
