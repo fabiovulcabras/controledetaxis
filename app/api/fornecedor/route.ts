@@ -10,6 +10,7 @@ import { aparelhoDoFornecedor, cookieDoFornecedor } from "@/lib/acesso-fornecedo
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS } from "@/lib/status";
 import { brl, formatarDataHora, lerValor } from "@/lib/datas";
+import { CORRIDA_ACEITA_EXTRA } from "@/lib/extras";
 import type { Saida } from "@/lib/bot/tipos";
 
 export const dynamic = "force-dynamic";
@@ -27,9 +28,20 @@ export async function GET(req: Request) {
     const [sol, forn, tabela] = await Promise.all([
       repo.solicitante(c.solicitante_id), c.fornecedor_id ? repo.fornecedor(c.fornecedor_id) : null, repo.precoTabela(c).catch(() => null),
     ]);
+    const autorizado = await aparelhoDoFornecedor(req, c.fornecedor_id);
+    // Extras (pedágio, espera…) só para o aparelho do fornecedor; a migração 015 pode ainda não ter rodado
+    let extras: unknown[] = [], extraPermitido = false;
+    if (autorizado && CORRIDA_ACEITA_EXTRA.includes(c.status)) {
+      const db = supabaseAdmin();
+      const [{ data: ex, error: eEx }, { data: noEspelho }] = await Promise.all([
+        db.from("corrida_extras").select("id,tipo,descricao,valor,status,motivo_recusa,criado_em").eq("corrida_id", c.id).order("criado_em"),
+        db.from("espelho_itens").select("id").eq("corrida_id", c.id).maybeSingle(),
+      ]);
+      if (!eEx) { extras = ex ?? []; extraPermitido = !noEspelho; }
+    }
     return Response.json({
       valor_tabela: tabela?.valor ?? null, tabela_descricao: tabela?.descricao ?? null,
-      autorizado: await aparelhoDoFornecedor(req, c.fornecedor_id),
+      autorizado, extras, extra_permitido: extraPermitido,
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status].rotulo, fornecedor: forn?.nome ?? null,
       quando: c.tipo === "imediata" ? `Agora (pedido às ${formatarDataHora(c.criado_em).slice(6)})` : formatarDataHora(c.data_hora_prevista),
       tipo: c.tipo, origem: c.origem, destino: c.destino, passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? null,

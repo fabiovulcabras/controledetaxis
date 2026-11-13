@@ -10,6 +10,8 @@ import { gerarCsv, lerFaturaCsv, lerFaturaLinhas, type ItemFatura } from "@/lib/
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import type { StatusCorrida } from "@/lib/status";
 import { chamarApi } from "@/lib/api";
+import { useApp } from "@/components/AuthGate";
+import ExtrasCorrida from "@/components/ExtrasCorrida";
 
 /** Valor de tabela da corrida, só quando foi calculado para o fornecedor da fatura. */
 const tabelaDoItem = (i: Item, fornecedorId: string) =>
@@ -42,7 +44,32 @@ type Visao = "todos" | "pendentes" | "problemas" | "conciliados";
 const STATUS_FATURA: Record<string, string> = { importada: "Importada", em_conciliacao: "Em conciliação", conciliada: "Conciliada" };
 const nomeCompetencia = (c: string) => { const [a, m] = c.split("-"); return `${m}/${a}`; };
 
+type Aba = "extras" | "faturas";
+const ABAS: [Aba, string][] = [["extras", "Extras pendentes"], ["faturas", "Faturas importadas"]];
+
 export default function Conciliacao() {
+  const { planejamento } = useApp();
+  const [aba, setAba] = useState<Aba>("extras");
+  useEffect(() => {
+    const h = window.location.hash.slice(1) as Aba;
+    if (ABAS.some(([a]) => a === h)) setAba(h);
+  }, []);
+  const trocar = (a: Aba) => { setAba(a); window.history.replaceState(null, "", `#${a}`); };
+  return (
+    <>
+      <nav className="abas" aria-label="Conciliação">
+        {ABAS.map(([a, rotulo]) => <button key={a} type="button" className={aba === a ? "ativa" : ""} onClick={() => trocar(a)}>{rotulo}</button>)}
+      </nav>
+      {aba === "extras" && <>
+        <TopoPagina titulo="Extras pendentes" subtitulo="Pedágio, espera, km a mais e paradas lançados pelos fornecedores, com comprovante. Decida todos os extras do mês antes de gerar o espelho." />
+        <section className="card"><ExtrasCorrida podeAgir={planejamento} /></section>
+      </>}
+      {aba === "faturas" && <FaturasImportadas />}
+    </>
+  );
+}
+
+function FaturasImportadas() {
   const [faturas, setFaturas] = useState<Fatura[]>([]);
   const [fornecedores, setFornecedores] = useState<{ id: string; nome: string }[]>([]);
   const [selecionada, setSelecionada] = useState<string | null>(null);
@@ -63,7 +90,7 @@ export default function Conciliacao() {
 
   return (
     <>
-      <TopoPagina titulo="Conciliação" subtitulo="Importe a fatura do fornecedor e cruze cada cobrança com o protocolo da corrida, o valor informado e a tabela de preços.">
+      <TopoPagina titulo="Faturas importadas" subtitulo="Se o fornecedor mandar a planilha de cobrança, importe e cruze cada linha com o protocolo da corrida, o valor informado e a tabela de preços.">
         <button type="button" className="pri" onClick={() => setImportando(true)}>+ Importar fatura</button>
       </TopoPagina>
       {err && <div className="err">{err}</div>}

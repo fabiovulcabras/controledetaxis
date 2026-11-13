@@ -7,6 +7,7 @@ import { Campo, Filtros, PainelLateral, TopoPagina } from "@/components/Formular
 import { StatusTag } from "@/components/StatusTag";
 import Prazo from "@/components/Prazo";
 import { useApp } from "@/components/AuthGate";
+import ExtrasCorrida from "@/components/ExtrasCorrida";
 import { useRetorno } from "@/components/Retorno";
 import { useTempoReal } from "@/lib/hooks/useTempoReal";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
@@ -365,6 +366,13 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             {c.motivo_cancelamento && <><dt>Cancelamento</dt><dd>{c.motivo_cancelamento}</dd></>}
           </dl>
         </fieldset>
+
+        {["concluida", "validada", "contestada"].includes(c.status) && (
+          <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+            <legend>Extras (pedágio, espera…)</legend>
+            <ExtrasCorrida corridaId={c.id} podeAgir={podeAgir} onMudou={onMudou} />
+          </fieldset>
+        )}
 
         <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
           <legend>Linha do tempo</legend>

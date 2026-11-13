@@ -7,6 +7,7 @@ import { brl } from "@/lib/datas";
 import Prazo from "@/components/Prazo";
 import { placaValida } from "@/lib/motorista";
 import NotificacoesPush from "@/components/NotificacoesPush";
+import { STATUS_EXTRA, TIPOS_EXTRA, erroArquivo, type TipoExtra } from "@/lib/extras";
 
 type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
@@ -14,7 +15,9 @@ type Corrida = {
   motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string; observacoes?: string | null;
   prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null; autorizado?: boolean;
   valor_tabela?: number | null; tabela_descricao?: string | null;
+  extras?: ExtraForn[]; extra_permitido?: boolean;
 };
+type ExtraForn = { id: string; tipo: TipoExtra; descricao: string | null; valor: number; status: "pendente" | "aprovado" | "recusado"; motivo_recusa: string | null };
 type Link = { rotulo: string; url: string };
 type Tela = null | "aceitar" | "recusar" | "valor" | "nao_realizada";
 
@@ -183,8 +186,78 @@ export default function RespostaFornecedor() {
       )}
 
       {c.status === "cancelada" && <p className="empty">Esta corrida foi cancelada. Não é preciso fazer nada.</p>}
-      {["concluida", "validada", "contestada"].includes(c.status) && <p className="empty">Corrida concluída. O valor será conferido com a fatura pelo protocolo {c.protocolo}.</p>}
+      {["concluida", "validada", "contestada"].includes(c.status) && <p className="empty">Corrida concluída. O valor entra no fechamento do mês (espelho) pelo protocolo {c.protocolo}.</p>}
+      {c.autorizado && ((c.extras?.length ?? 0) > 0 || c.extra_permitido) && <ExtrasDaCorrida token={token} extras={c.extras ?? []} permitido={!!c.extra_permitido} onMudou={carregar} />}
     </Moldura>
+  );
+}
+
+/** Extras da corrida (pedágio, espera, km a mais, parada extra): o fornecedor lança com comprovante e acompanha a decisão. */
+function ExtrasDaCorrida({ token, extras, permitido, onMudou }: { token: string; extras: ExtraForn[]; permitido: boolean; onMudou: () => Promise<void> }) {
+  const [aberto, setAberto] = useState(false);
+  const [tipo, setTipo] = useState<TipoExtra | "">("");
+  const [valor, setValor] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+  const problemaArquivo = arquivo ? erroArquivo(arquivo) : null;
+  const enviar = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr(""); setOk("");
+    const p = erroArquivo(arquivo);
+    if (p) { setErr(p); return; }
+    const fd = new FormData();
+    fd.set("token", token); fd.set("tipo", tipo); fd.set("valor", valor); fd.set("descricao", descricao); fd.set("arquivo", arquivo as File);
+    setOcupado(true);
+    try {
+      const r = await fetch("/api/fornecedor/extras", { method: "POST", body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErr(j.erro ?? (r.status === 413 ? "O arquivo é grande demais (máximo 4 MB)." : "Não foi possível enviar.")); return; }
+      setOk("Extra enviado. O planejamento vai conferir o comprovante.");
+      setAberto(false); setTipo(""); setValor(""); setDescricao(""); setArquivo(null);
+      await onMudou();
+    } finally { setOcupado(false); }
+  };
+  return (
+    <section className="card">
+      <h3 style={{ marginTop: 0 }}>Extras da corrida</h3>
+      <p className="pagina-sub" style={{ marginTop: 0 }}>Pedágio, tempo de espera, km a mais ou parada extra, sempre com comprovante. O planejamento aprova ou recusa; só os aprovados entram no espelho do mês.</p>
+      {ok && <div className="ok">{ok}</div>}
+      {extras.length > 0 && (
+        <ul className="lista-extras">
+          {extras.map((x) => (
+            <li key={x.id}>
+              <div><strong>{TIPOS_EXTRA[x.tipo]}</strong> · {brl(x.valor)}{x.descricao && <small className="bloco texto-fraco">{x.descricao}</small>}</div>
+              <div style={{ textAlign: "right" }}><span className={`tag ${x.status === "aprovado" ? "aprovada" : x.status === "recusado" ? "reprovada" : "pendente"}`}>{STATUS_EXTRA[x.status]}</span>
+                {x.motivo_recusa && <small className="bloco texto-fraco">{x.motivo_recusa}</small>}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!permitido && <p className="texto-fraco" style={{ fontSize: 13 }}>Esta corrida já está no espelho do mês. Para cobrar algo a mais, conteste o item no espelho, pelo seu portal.</p>}
+      {permitido && !aberto && <button type="button" className="ghost botao-grande" onClick={() => setAberto(true)}>+ Lançar extra</button>}
+      {permitido && aberto && (
+        <form onSubmit={enviar} style={{ display: "grid", gap: 12, marginTop: 8 }}>
+          <Campo rotulo="Tipo" obrigatorio>
+            <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoExtra)} required>
+              <option value="">Selecione</option>
+              {Object.entries(TIPOS_EXTRA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Campo>
+          <Campo rotulo="Valor (R$)" obrigatorio><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="12,40" required /></Campo>
+          <Campo rotulo={tipo === "outro" ? "Descrição" : "Descrição (opcional)"} obrigatorio={tipo === "outro"} ajuda={tipo === "espera" ? "Ex.: aguardou 40 min no aeroporto." : tipo === "km_extra" ? "Ex.: desvio pedido pelo passageiro." : undefined}>
+            <input value={descricao} onChange={(e) => setDescricao(e.target.value)} maxLength={300} required={tipo === "outro"} />
+          </Campo>
+          <Campo rotulo="Comprovante (foto ou PDF, até 4 MB)" obrigatorio aviso={problemaArquivo ?? undefined}>
+            <input type="file" accept="image/*,application/pdf" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} required />
+          </Campo>
+          {err && <div className="err" style={{ margin: 0 }}>{err}</div>}
+          <button className="pri botao-grande" disabled={ocupado || !tipo || !valor.trim() || !arquivo || !!problemaArquivo}>{ocupado ? "Enviando…" : "Enviar extra"}</button>
+          <button type="button" className="ghost" onClick={() => { setAberto(false); setErr(""); }}>Cancelar</button>
+        </form>
+      )}
+    </section>
   );
 }
 
