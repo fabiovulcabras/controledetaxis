@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     const item = (c: any) => ({
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: c.destino, solicitante: c.solicitante_nome,
-      valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em, observacoes: c.observacoes ?? null,
+      valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? c.prazo_resposta_em : null, observacoes: c.observacoes ?? null,
     });
     const lista = corridas ?? [];
     // Abrir o portal identifica este aparelho como do fornecedor: os links /f/… passam a permitir responder

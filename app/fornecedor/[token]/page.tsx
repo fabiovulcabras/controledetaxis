@@ -34,7 +34,7 @@ export default function Portal() {
             <p>{c.quando} · {c.solicitante}</p>
             <p className="texto-fraco">{c.origem} → {c.destino}</p>
             {c.observacoes && <p className="observacoes-corrida">Obs.: {c.observacoes}</p>}
-            {c.prazo_iso && <Prazo ate={c.prazo_iso} />}
+            {c.prazo_iso && ["enviada", "sem_resposta"].includes(c.status) && <Prazo ate={c.prazo_iso} />}
             {c.valor && <p><strong>{c.valor}</strong></p>}
           </Link>
         ))}
