@@ -638,3 +638,10 @@ th.num { text-align: right; }
 /* Observações do solicitante: destacadas para o fornecedor não deixar passar */
 .observacoes-corrida { white-space: pre-wrap; border-left: 3px solid var(--gold); background: #FFFBEB; color: var(--slate-700); padding: 6px 10px; border-radius: 0 8px 8px 0; }
 p.observacoes-corrida { margin: 6px 0 0; font-size: 13px; }
+
+/* Notificações push */
+.push-caixa { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; background: #EEF3FA; border: 1px solid #D5E0EE; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; color: var(--navy); font-size: 14px; }
+.push-caixa > span { flex: 1 1 240px; }
+.push-caixa .row { gap: 6px; }
+.push-caixa small { flex-basis: 100%; }
+.push-caixa.compacto { margin: 0; padding: 6px 10px; font-size: 13px; }

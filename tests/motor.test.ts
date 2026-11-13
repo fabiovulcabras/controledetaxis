@@ -3,6 +3,9 @@ import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor"
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
+import { corpoNotificacao, montarNotificacao } from "../lib/push";
+import { b64url, cabecalhoVapid, criptografar, deB64url, gerarChavesVapid } from "../lib/webpush";
+import { createDecipheriv, createECDH, createPublicKey, createVerify, hkdfSync } from "node:crypto";
 import { minutosInteiros, taxaAceite } from "../lib/relatorio";
 import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
 import { linkWhatsApp, msgNovaCorridaFornecedor, msgAceitaSolicitante } from "../lib/whatsapp/link";
@@ -965,5 +968,50 @@ describe("cancelamento pelo solicitante", () => {
     // A corrida em andamento nem aparece entre as que podem ser canceladas
     expect(JSON.stringify(ultima(lista, ANA))).not.toContain("TX-2026-00001");
     expect(c.repo.corridas[0].status).toBe("em_andamento");
+  });
+});
+
+describe("Web Push", () => {
+  it("bate com o exemplo da RFC 8291 (apêndice A)", () => {
+    const r = criptografar(
+      { endpoint: "https://push.example.net/x", p256dh: "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4", auth: "BTBZMqHH6r4Tts7J_aSIgg" },
+      Buffer.from("When I grow up, I want to be a watermelon"), deB64url("DGv6ra1nlYgDCS1FRnbzlw"), deB64url("yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw"));
+    expect(b64url(r)).toBe("DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN");
+  });
+
+  it("o navegador consegue abrir a mensagem (ida e volta)", () => {
+    const ua = createECDH("prime256v1"); ua.generateKeys();
+    const auth = Buffer.from("0123456789abcdef");
+    const msg = JSON.stringify({ titulo: "Corrida TX-2026-00001", corpo: "Aceita por Reinaldo — chegada às 17h30" });
+    const r = criptografar({ endpoint: "https://fcm.googleapis.com/fcm/send/x", p256dh: b64url(ua.getPublicKey()), auth: b64url(auth) }, Buffer.from(msg));
+    const sal = r.subarray(0, 16), idlen = r[20], asPub = r.subarray(21, 21 + idlen), cifrado = r.subarray(21 + idlen);
+    const ikm = Buffer.from(hkdfSync("sha256", ua.computeSecret(asPub), auth, Buffer.concat([Buffer.from("WebPush: info\0"), ua.getPublicKey(), asPub]), 32));
+    const cek = Buffer.from(hkdfSync("sha256", ikm, sal, Buffer.from("Content-Encoding: aes128gcm\0"), 16));
+    const nonce = Buffer.from(hkdfSync("sha256", ikm, sal, Buffer.from("Content-Encoding: nonce\0"), 12));
+    const d = createDecipheriv("aes-128-gcm", cek, nonce); d.setAuthTag(cifrado.subarray(cifrado.length - 16));
+    const claro = Buffer.concat([d.update(cifrado.subarray(0, cifrado.length - 16)), d.final()]);
+    expect(claro.subarray(0, claro.length - 1).toString()).toBe(msg);
+    expect(claro[claro.length - 1]).toBe(2);
+  });
+
+  it("assinatura VAPID confere com a chave pública", () => {
+    const ch = { ...gerarChavesVapid(), assunto: "mailto:planejamento@exemplo.com" };
+    const cab = cabecalhoVapid("https://fcm.googleapis.com/fcm/send/abc", ch, Date.UTC(2026, 10, 13));
+    const [, jwt, k] = cab.match(/^vapid t=([^,]+), k=(.+)$/)!;
+    expect(k).toBe(ch.publica);
+    const [h, p, sig] = jwt.split(".");
+    expect(JSON.parse(deB64url(p).toString()).aud).toBe("https://fcm.googleapis.com");
+    const pub = deB64url(ch.publica);
+    const chave = createPublicKey({ key: { kty: "EC", crv: "P-256", x: b64url(pub.subarray(1, 33)), y: b64url(pub.subarray(33)) }, format: "jwk" });
+    expect(createVerify("SHA256").update(`${h}.${p}`).verify({ key: chave, dsaEncoding: "ieee-p1363" }, deB64url(sig))).toBe(true);
+  });
+});
+
+describe("conteúdo das notificações", () => {
+  it("título por papel, texto enxuto e link certo", () => {
+    const n = montarNotificacao("solicitante", "Sua corrida *TX-2026-00001* foi aceita por Reinaldo.\n\nMotorista: Carlos", { protocolo: "TX-2026-00001", url: "/pedir/abc", corridaId: "c1" });
+    expect(n).toEqual({ titulo: "Corrida TX-2026-00001", corpo: "Sua corrida TX-2026-00001 foi aceita por Reinaldo.\nMotorista: Carlos", url: "/pedir/abc", tag: "solicitante:c1" });
+    expect(montarNotificacao("planejamento", "Alerta", { protocolo: "TX-1", url: "/corridas?id=c1", corridaId: "c1" }).titulo).toBe("Planejamento · TX-1");
+    expect(corpoNotificacao("x".repeat(300)).length).toBe(238);
   });
 });

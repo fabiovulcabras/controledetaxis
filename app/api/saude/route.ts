@@ -61,6 +61,9 @@ export async function GET() {
   if (modo === "evolution" && !process.env.EVOLUTION_WEBHOOK_TOKEN) {
     itens.push({ ok: false, item: "Falta EVOLUTION_WEBHOOK_TOKEN", detalhe: "Sem ele o webhook da Evolution recusa as mensagens." });
   }
+  itens.push(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
+    ? { ok: true, item: "Notificações push configuradas" }
+    : { ok: false, item: "Notificações push sem chaves", detalhe: "Abra /api/push/gerar-chaves e copie VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY e VAPID_SUBJECT para a Vercel." });
   if (process.env.QSTASH_TOKEN) {
     const chaves = !!(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY);
     const temEndereco = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);

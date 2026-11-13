@@ -142,8 +142,8 @@ export async function POST(req: Request) {
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);
 
-    // Com envio automático (Meta ou Evolution) a mensagem vai sozinha; sem ele, a pessoa envia pelo link
-    await despacharSaidas(db, envioAutomatico() ? saidas : []);
+    // WhatsApp sai sozinho só com envio automático (Meta ou Evolution); a notificação push sai sempre
+    await despacharSaidas(db, saidas);
     return respostaPedido(req, enviada, sol.nome);
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);

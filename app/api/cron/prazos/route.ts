@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);
     else {
       await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica no histórico de mensagens da corrida
-      await despacharSaidas(db, prazos); // e-mails de alerta, se configurados
+      await despacharSaidas(db, [...prazos, ...lembretes]); // e-mails de alerta e notificações push
     }
     return Response.json({ ok: true, mensagens: prazos.length + lembretes.length });
   } catch (err) {

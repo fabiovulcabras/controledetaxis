@@ -6,6 +6,7 @@ import { Campo } from "@/components/Formulario";
 import { brl } from "@/lib/datas";
 import Prazo from "@/components/Prazo";
 import { placaValida } from "@/lib/motorista";
+import NotificacoesPush from "@/components/NotificacoesPush";
 
 type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
@@ -75,6 +76,7 @@ export default function RespostaFornecedor() {
 
   return (
     <Moldura subtitulo={c.fornecedor ?? undefined}>
+      {c.autorizado && <NotificacoesPush tipo="fornecedor" token={token} compacto />}
       {ok && <div className="ok">{ok}</div>}
       {links.length > 0 && (
         <section className="card">

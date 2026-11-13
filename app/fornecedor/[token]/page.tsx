@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import BrandMark from "@/components/BrandMark";
 import Prazo from "@/components/Prazo";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
+import NotificacoesPush from "@/components/NotificacoesPush";
 
 type Item = { protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string; solicitante: string; valor: string | null; link: string; prazo_iso: string | null; observacoes?: string | null };
 type Dados = { fornecedor: string; responder: Item[]; em_curso: Item[]; encerradas: Item[]; total_periodo: string };
@@ -46,6 +47,7 @@ export default function Portal() {
       <header className="publico-topo"><div className="conteudo"><BrandMark /><div><strong>Portal do fornecedor</strong>{d && <small>{d.fornecedor}</small>}</div></div></header>
       <main className="publico-corpo">
         {erro ? <section className="card"><h2>Link indisponível</h2><p className="err">{erro}</p></section> : !d ? <p className="empty">Carregando…</p> : <>
+          <NotificacoesPush tipo="fornecedor" token={token} />
           <p className="pagina-sub" style={{ marginBottom: 16 }}>Toque numa corrida para aceitar, recusar, registrar o embarque ou informar o valor. Valor concluído nos últimos 45 dias: <strong>{d.total_periodo}</strong>.</p>
           {lista("Para responder", d.responder, "Nenhuma corrida esperando resposta.", true)}
           {lista("Em andamento", d.em_curso, "Nenhuma corrida em andamento.")}

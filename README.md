@@ -35,7 +35,7 @@ Campo opcional (até 500 caracteres) para o solicitante deixar recados ao fornec
 
 ## Instalação
 
-1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`, `supabase/009_relatorios.sql`, `supabase/010_motivos.sql`, `supabase/011_observacoes.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
+1. Crie um projeto no Supabase e rode `supabase/schema.sql` no SQL Editor (uma vez). Depois rode as migrações numeradas na ordem (`supabase/002_links_whatsapp.sql`, `supabase/003_melhorias.sql`, `supabase/004_acesso_fornecedor.sql`, `supabase/005_locais.sql`, `supabase/006_fila_evolution_qstash.sql`, `supabase/007_palavra_ativacao.sql`, `supabase/008_tabela_precos.sql`, `supabase/009_relatorios.sql`, `supabase/010_motivos.sql`, `supabase/011_observacoes.sql`, `supabase/012_notificacoes_push.sql`), cada uma numa execução separada. A 003 também liga o tempo real (Realtime) para corridas, eventos e mensagens.
 2. Opcional: rode `supabase/exemplo.sql` para ter unidade, dois fornecedores e três pessoas com números fictícios.
 3. Copie `.env.example` para `.env.local` e preencha as chaves do Supabase. A `SUPABASE_SERVICE_ROLE_KEY` é secreta: só no servidor, nunca como `NEXT_PUBLIC_`.
 4. `npm install && npm run dev`
@@ -96,6 +96,16 @@ A Evolution API conecta um número comum de WhatsApp pelo WhatsApp Web (lendo um
 Como não há botões, as opções saem numeradas ("*1* – Aceitar", "*2* – Recusar") e a resposta "1" vira a opção correspondente da última mensagem enviada àquele número.
 
 Fluxo: a pessoa autorizada conversa com o bot → a corrida é gravada e enviada ao **fornecedor mais barato para o trecho** (pela Tabela de preços; quem não tem preço para o trecho fica fora) → o prazo é agendado no QStash → "1" aceita (o solicitante recebe a confirmação com os dados do motorista), "2" recusa e passa ao próximo; sem resposta no prazo, o fornecedor perde a vez e a corrida vai ao próximo. Sem ninguém na fila, o planejamento é alertado. Cada envio fica em `corrida_tentativas` (ordem, prazo, resultado). O prazo é o "Prazo para responder" de cada fornecedor em Cadastros (ex.: 5 min).
+
+## Notificações push (celular e computador)
+
+Toda mensagem que o sistema gera para alguém (andamento da corrida para o solicitante, corrida nova e cancelamentos para o fornecedor, alertas para o planejamento) também chega como notificação nos aparelhos onde a pessoa ativou, mesmo com o app fechado. Vale em qualquer modo de envio.
+
+1. Abra `https://SEU-APP/api/push/gerar-chaves` e copie `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` para a Vercel; faça redeploy.
+2. Rode `supabase/012_notificacoes_push.sql`.
+3. Cada pessoa toca em **Ativar notificações**: o solicitante na página de pedido, o fornecedor no portal, o planejamento na Visão geral do painel.
+
+Android e computador (Chrome/Edge): funciona direto no navegador; instalar o app é opcional. iPhone (iOS 16.4+): precisa adicionar à Tela de Início pelo Safari e abrir pelo ícone.
 
 ## Prazos pelo Upstash QStash
 

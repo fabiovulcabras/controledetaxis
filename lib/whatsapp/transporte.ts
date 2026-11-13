@@ -5,6 +5,7 @@ import { payloadMeta } from "./meta";
 import { textoTemplate } from "./templates";
 import { enviarEmailsPlanejamento } from "../email";
 import { agendarPrazosPendentes } from "../qstash";
+import { notificarPush } from "../push";
 import { enderecoPorCoordenadas } from "../endereco";
 import { enviarTextoEvolution, evolutionConfigurada, textoComOpcoes, traduzirResposta } from "./evolution";
 
@@ -74,6 +75,8 @@ export async function despacharSaidas(db: SupabaseClient, saidas: Saida[]): Prom
     if (envioAutomatico()) await enviarSaidas(db, saidas, modoEnvio());
     await enviarEmailsPlanejamento(db, saidas);
   }
+  // As mesmas mensagens viram notificação push nos aparelhos inscritos (solicitante, fornecedor, planejamento)
+  await notificarPush(db, saidas).catch((err) => console.error("Push", err instanceof Error ? err.message : err));
   // Toda corrida que acabou de ir a um fornecedor ganha a tarefa de prazo no QStash
   await agendarPrazosPendentes(db);
 }

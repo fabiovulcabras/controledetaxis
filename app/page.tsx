@@ -8,11 +8,11 @@ import { StatusTag } from "@/components/StatusTag";
 import Prazo from "@/components/Prazo";
 import Barras from "@/components/Barras";
 import { useApp } from "@/components/AuthGate";
-import { useAlertas } from "@/components/AlertasPlanejamento";
 import { useTempoReal } from "@/lib/hooks/useTempoReal";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import { EXCECOES, type StatusCorrida } from "@/lib/status";
 import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
+import NotificacoesPush from "@/components/NotificacoesPush";
 
 type Linha = {
   id: string; protocolo: string; status: StatusCorrida; data_hora_prevista: string; destino: string; prazo_resposta_em: string | null;
@@ -29,7 +29,6 @@ const CAMPOS = "id,protocolo,status,data_hora_prevista,destino,prazo_resposta_em
 
 export default function VisaoGeral() {
   const { planejamento } = useApp();
-  const { permissao, pedirPermissao } = useAlertas();
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [hoje, setHoje] = useState(0);
   const [excecoes, setExcecoes] = useState<Linha[]>([]);
@@ -67,8 +66,8 @@ export default function VisaoGeral() {
   return (
     <>
       <TopoPagina titulo="Visão geral" subtitulo={`Atualiza sozinha quando algo muda · ${formatarDataHora(agora).slice(6)}`}>
-        {planejamento && permissao === "default" && <button type="button" className="ghost" onClick={pedirPermissao}>Ativar alertas no navegador</button>}
       </TopoPagina>
+      {planejamento && <NotificacoesPush tipo="planejamento" />}
       {err && <div className="err">{err}</div>}
 
       <div className="kpis">

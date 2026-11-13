@@ -5,6 +5,7 @@ import BrandMark from "@/components/BrandMark";
 import { Campo, GrupoCampo } from "@/components/Formulario";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import CampoEndereco, { type LocalCadastrado } from "@/components/CampoEndereco";
+import NotificacoesPush from "@/components/NotificacoesPush";
 
 type Dados = {
   nome: string; locais?: LocalCadastrado[];
@@ -114,6 +115,7 @@ export default function Pedir() {
 
   return (
     <Moldura subtitulo={dados.nome}>
+      <NotificacoesPush tipo="solicitante" token={token} />
       {resultado && (
         <section className="card">
           <span className="texto-fraco">Pedido registrado</span>
