@@ -25,3 +25,19 @@ export function periodoExportacao(de: string | null, ate: string | null): { inic
   if ((fim.getTime() - inicio.getTime()) / 86400_000 > MAX_DIAS_EXPORTACAO) return { erro: `Escolha um intervalo de até ${MAX_DIAS_EXPORTACAO} dias.` };
   return { inicio, fim };
 }
+
+/**
+ * Busca em páginas de 1.000 linhas (o máximo que a API do Supabase devolve por consulta) até `limite`.
+ * `pagina(de, ate)` monta a consulta com `.range(de, ate)` e ordem estável.
+ */
+export async function buscarPaginado<T>(pagina: (de: number, ate: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>, limite: number): Promise<T[]> {
+  const TAM = 1000;
+  const todas: T[] = [];
+  while (todas.length < limite) {
+    const { data, error } = await pagina(todas.length, Math.min(todas.length + TAM, limite) - 1);
+    if (error) throw new Error(error.message);
+    todas.push(...(data ?? []));
+    if (!data || data.length < Math.min(TAM, limite - (todas.length - data.length))) break;
+  }
+  return todas;
+}

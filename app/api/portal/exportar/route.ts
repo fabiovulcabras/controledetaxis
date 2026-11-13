@@ -4,7 +4,7 @@ import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS, type StatusCorrida } from "@/lib/status";
 import { formatarData, formatarHora } from "@/lib/datas";
 import { formatarPlaca } from "@/lib/motorista";
-import { periodoExportacao } from "@/lib/exportacao-fornecedor";
+import { buscarPaginado, periodoExportacao } from "@/lib/exportacao-fornecedor";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +23,11 @@ export async function GET(req: Request) {
     const { data: forn, error } = await db.from("fornecedores").select("id,nome,ativo").eq("token_portal", token).maybeSingle();
     if (error) throw new Error(error.message);
     if (!forn?.ativo) return erroJson("Este link não vale mais. Peça um novo ao planejamento.", 404);
-    const { data, error: e2 } = await db.from("corridas_lista")
-      .select("protocolo,status,tipo,data_hora_prevista,origem,destino,qtd_passageiros,solicitante_nome,solicitante_setor,motorista,veiculo_placa,valor_informado,observacoes")
+    const lista = await buscarPaginado<any>((de, ate) => db.from("corridas_lista")
+      .select("id,protocolo,status,tipo,data_hora_prevista,origem,destino,qtd_passageiros,solicitante_nome,solicitante_setor,motorista,veiculo_placa,valor_informado,observacoes")
       .eq("fornecedor_id", forn.id)
       .gte("data_hora_prevista", periodo.inicio.toISOString()).lt("data_hora_prevista", periodo.fim.toISOString())
-      .order("data_hora_prevista", { ascending: true }).limit(LIMITE_LINHAS + 1);
-    if (e2) throw new Error(e2.message);
-    const lista = data ?? [];
+      .order("data_hora_prevista", { ascending: true }).order("id").range(de, ate), LIMITE_LINHAS + 1);
     return Response.json({
       fornecedor: forn.nome,
       truncado: lista.length > LIMITE_LINHAS,

@@ -1,4 +1,4 @@
-import { periodoExportacao } from "../lib/exportacao-fornecedor";
+import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -1054,5 +1054,15 @@ describe("exportação do portal do fornecedor", () => {
     expect("erro" in periodoExportacao("2026-03-02", "2026-03-01")).toBe(true);
     expect("erro" in periodoExportacao("2025-01-01", "2026-03-01")).toBe(true);
     expect("erro" in periodoExportacao("2026-01-01", "2026-12-31")).toBe(false);
+  });
+});
+
+describe("busca paginada", () => {
+  const fonte = Array.from({ length: 2350 }, (_, i) => i);
+  const pagina = async (de: number, ate: number) => ({ data: fonte.slice(de, Math.min(ate, 999 + de) + 1), error: null });
+  it("junta as páginas de 1.000 até o fim ou até o limite", async () => {
+    expect((await buscarPaginado(pagina, 20000)).length).toBe(2350);
+    expect((await buscarPaginado(pagina, 1001)).length).toBe(1001);
+    expect((await buscarPaginado(pagina, 1000)).length).toBe(1000);
   });
 });
