@@ -26,7 +26,7 @@ As transições permitidas ficam no banco (`fn_transicao_valida`) e em `lib/stat
 | Pedido por link (`/pedir/…`) | pessoa autorizada, sem login | Pedido de táxi pelo celular, com unidades e locais cadastrados para escolher como origem ou destino, acompanhamento e cancelamento |
 | Resposta do fornecedor (`/f/…`) | fornecedor, sem login | Aceitar com motorista, recusar, embarque e valor (mostra prazo, distância e tarifa de referência) |
 | Portais dos fornecedores | planejamento | Link fixo do portal de cada fornecedor: enviar pelo WhatsApp, copiar, abrir ou gerar novo |
-| Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas |
+| Portal do fornecedor (`/fornecedor/…`) | fornecedor, sem login | Link fixo com todas as corridas do fornecedor: para responder, em andamento e encerradas; baixa em Excel as corridas atribuídas a ele entre duas datas (até 366 dias) |
 | Cadastros | admin | Pessoas autorizadas, fornecedores, tabela de preços, unidades, locais frequentes, motivos de corrida, parâmetros e usuários do painel |
 
 ## Observações da corrida

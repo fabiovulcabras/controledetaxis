@@ -1,3 +1,4 @@
+import { periodoExportacao } from "../lib/exportacao-fornecedor";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -1036,5 +1037,22 @@ describe("token VAPID em cache", () => {
     expect(cabecalhoVapidEmCache("https://web.push.apple.com/xyz", ch, t0 + 30 * 60_000)).toBe(a);
     expect(cabecalhoVapidEmCache("https://web.push.apple.com/abc", ch, t0 + 51 * 60_000) === a).toBe(false);
     expect(cabecalhoVapidEmCache("https://fcm.googleapis.com/fcm/send/x", ch, t0) === a).toBe(false);
+  });
+});
+
+describe("exportação do portal do fornecedor", () => {
+  it("converte as datas de São Paulo num intervalo que inclui o último dia", () => {
+    const p = periodoExportacao("2026-11-01", "2026-11-13") as { inicio: Date; fim: Date };
+    expect(p.inicio.toISOString()).toBe("2026-11-01T03:00:00.000Z");
+    expect(p.fim.toISOString()).toBe("2026-11-14T03:00:00.000Z");
+    const v = periodoExportacao("2026-12-31", "2026-12-31") as { inicio: Date; fim: Date };
+    expect(v.fim.toISOString()).toBe("2027-01-01T03:00:00.000Z");
+  });
+  it("recusa datas inválidas, invertidas ou intervalos longos demais", () => {
+    expect("erro" in periodoExportacao("2026-02-30", "2026-03-01")).toBe(true);
+    expect("erro" in periodoExportacao(null, "2026-03-01")).toBe(true);
+    expect("erro" in periodoExportacao("2026-03-02", "2026-03-01")).toBe(true);
+    expect("erro" in periodoExportacao("2025-01-01", "2026-03-01")).toBe(true);
+    expect("erro" in periodoExportacao("2026-01-01", "2026-12-31")).toBe(false);
   });
 });
