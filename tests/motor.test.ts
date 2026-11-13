@@ -4,7 +4,7 @@ import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarP
 import { lerWebhookEvolution, textoComOpcoes, traduzirResposta } from "../lib/whatsapp/evolution";
 import { assinaturaQStashValida } from "../lib/qstash";
 import { corpoNotificacao, montarNotificacao } from "../lib/push";
-import { assuntoVapid, b64url, cabecalhoVapid, chavesConferem, criptografar, deB64url, gerarChavesVapid } from "../lib/webpush";
+import { assuntoVapid, b64url, cabecalhoVapid, cabecalhoVapidEmCache, chavesConferem, criptografar, deB64url, gerarChavesVapid } from "../lib/webpush";
 import { createDecipheriv, createECDH, createPublicKey, createVerify, hkdfSync } from "node:crypto";
 import { minutosInteiros, taxaAceite } from "../lib/relatorio";
 import { escolherPreco, escolherPrecoTrecho, lerTabelaPrecos, pontasDoPreco, type LinhaPreco } from "../lib/precos";
@@ -1025,5 +1025,16 @@ describe("configuração VAPID", () => {
     expect(assuntoVapid("mailto: fabio@empresa.com.br")).toBe("mailto:fabio@empresa.com.br");
     expect(assuntoVapid("https://controledetaxis.vercel.app")).toBe("https://controledetaxis.vercel.app");
     expect(assuntoVapid("seu-email")).toBe("mailto:planejamento@exemplo.com.br");
+  });
+});
+
+describe("token VAPID em cache", () => {
+  it("reaproveita o token por até 50 min por serviço de push", () => {
+    const ch = { ...gerarChavesVapid(), assunto: "mailto:a@b.com" };
+    const t0 = Date.UTC(2026, 10, 13, 15, 0);
+    const a = cabecalhoVapidEmCache("https://web.push.apple.com/abc", ch, t0);
+    expect(cabecalhoVapidEmCache("https://web.push.apple.com/xyz", ch, t0 + 30 * 60_000)).toBe(a);
+    expect(cabecalhoVapidEmCache("https://web.push.apple.com/abc", ch, t0 + 51 * 60_000) === a).toBe(false);
+    expect(cabecalhoVapidEmCache("https://fcm.googleapis.com/fcm/send/x", ch, t0) === a).toBe(false);
   });
 });

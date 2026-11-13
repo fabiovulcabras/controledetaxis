@@ -51,6 +51,20 @@ export function gerarChavesVapid(): { publica: string; privada: string } {
   return { publica: b64url(publica), privada: jwk.d };
 }
 
+/**
+ * Token VAPID reaproveitado por até 50 min para cada serviço de push (a Apple pede no máximo um token novo por hora;
+ * validade de 12 h, dentro do limite de 24 h).
+ */
+const tokens = new Map<string, { em: number; cabecalho: string }>();
+export function cabecalhoVapidEmCache(endpoint: string, chaves: ChavesVapid, agora = Date.now()): string {
+  const chave = `${new URL(endpoint).origin}|${chaves.publica}|${chaves.assunto}`;
+  const t = tokens.get(chave);
+  if (t && agora - t.em < 50 * 60_000) return t.cabecalho;
+  const cabecalho = cabecalhoVapid(endpoint, chaves, agora);
+  tokens.set(chave, { em: agora, cabecalho });
+  return cabecalho;
+}
+
 /** Cabeçalho Authorization VAPID para o serviço de push do endpoint (válido por 12 h). */
 export function cabecalhoVapid(endpoint: string, chaves: ChavesVapid, agora = Date.now()): string {
   const pub = deB64url(chaves.publica);
@@ -88,7 +102,7 @@ export async function enviarPush(inscricao: InscricaoPush, dados: unknown, chave
     const resp = await fetch(inscricao.endpoint, {
       method: "POST",
       headers: {
-        Authorization: cabecalhoVapid(inscricao.endpoint, chaves),
+        Authorization: cabecalhoVapidEmCache(inscricao.endpoint, chaves),
         "Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream",
         TTL: "86400", Urgency: "high",
       },
