@@ -6,16 +6,20 @@ import BrandMark from "@/components/BrandMark";
 import Prazo from "@/components/Prazo";
 import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import NotificacoesPush from "@/components/NotificacoesPush";
+import LoginFornecedor from "@/components/LoginFornecedor";
 import { baixarXlsx } from "@/lib/xlsx";
 import { dataSP, partesSP } from "@/lib/datas";
 
 const isoDia = (d: Date) => { const p = partesSP(d); return `${p.ano}-${String(p.mes).padStart(2, "0")}-${String(p.dia).padStart(2, "0")}`; };
 type Linha = { protocolo: string; data: string; hora: string; tipo: string; status: string; solicitante: string; setor: string | null; origem: string; destino: string; passageiros: number; motorista: string | null; placa: string | null; valor: number | null; observacoes: string | null };
 
+const LOGIN = "__login__";
+
 /** Gera a planilha Excel com as corridas atribuídas ao fornecedor no período. Devolve a mensagem para a tela. */
 async function baixarCorridas(token: string, de: string, ate: string): Promise<string> {
   const r = await fetch(`/api/portal/exportar?token=${token}&de=${de}&ate=${ate}`, { cache: "no-store" });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && j.login) return LOGIN;
   if (!r.ok) return j.erro ?? "Não foi possível gerar a planilha.";
   const linhas: Linha[] = j.corridas ?? [];
   if (!linhas.length) return "Nenhuma corrida atribuída a vocês nesse período.";
@@ -39,6 +43,7 @@ export default function Portal() {
   const { token } = useParams<{ token: string }>();
   const [d, setD] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
+  const [login, setLogin] = useState(false);
   const [de, setDe] = useState(() => { const h = partesSP(new Date()); return isoDia(dataSP(h.ano, h.mes, 1)); });
   const [ate, setAte] = useState(() => isoDia(new Date()));
   const [periodo, setPeriodo] = useState<{ de: string; ate: string } | null>(null);
@@ -47,16 +52,24 @@ export default function Portal() {
   const carregar = async () => {
     const r = await fetch(`/api/portal?token=${token}&de=${de}&ate=${ate}`, { cache: "no-store" });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 401 && j.login) { setLogin(true); setD(null); return; }
     if (r.status === 400) { setAviso(j.erro ?? "Período inválido."); return; }
     if (!r.ok) { setErro(j.erro ?? "Não foi possível abrir o portal."); return; }
-    setAviso(""); setD(j); setPeriodo({ de, ate });
+    setLogin(false); setAviso(""); setD(j); setPeriodo({ de, ate });
   };
   useEffect(() => { void carregar(); }, [token, de, ate]);
   const baixar = async () => {
     setAviso(""); setBaixando(true);
-    try { setAviso(await baixarCorridas(token, de, ate)); } finally { setBaixando(false); }
+    try {
+      const m = await baixarCorridas(token, de, ate);
+      if (m === LOGIN) { setLogin(true); setD(null); } else setAviso(m);
+    } finally { setBaixando(false); }
   };
-  useIntervaloVisivel(() => void carregar(), 30_000);
+  useIntervaloVisivel(() => void carregar(), 30_000, !login);
+  const sair = async () => {
+    await fetch(`/api/portal/entrar?token=${token}`, { method: "DELETE" }).catch(() => null);
+    setD(null); setLogin(true);
+  };
 
   const lista = (titulo: string, itens: Item[], vazio: string, destaque = false, total = itens.length) => (
     <section style={{ marginBottom: 20 }}>
@@ -78,9 +91,9 @@ export default function Portal() {
 
   return (
     <div className="publico">
-      <header className="publico-topo"><div className="conteudo"><BrandMark /><div><strong>Portal do fornecedor</strong>{d && <small>{d.fornecedor}</small>}</div></div></header>
+      <header className="publico-topo"><div className="conteudo"><BrandMark /><div><strong>Portal do fornecedor</strong>{d && <small>{d.fornecedor}</small>}</div>{d && <button type="button" className="ghost" style={{ marginLeft: "auto" }} onClick={sair}>Sair</button>}</div></header>
       <main className="publico-corpo">
-        {erro ? <section className="card"><h2>Link indisponível</h2><p className="err">{erro}</p></section> : !d ? <p className="empty">Carregando…</p> : <>
+        {erro ? <section className="card"><h2>Link indisponível</h2><p className="err">{erro}</p></section> : login ? <LoginFornecedor token={token} onEntrou={() => { setLogin(false); void carregar(); }} /> : !d ? <p className="empty">Carregando…</p> : <>
           <NotificacoesPush tipo="fornecedor" token={token} />
           <section className="card" style={{ marginBottom: 20 }}>
             <div className="filtros-corridas" style={{ marginBottom: 0, alignItems: "flex-end" }}>

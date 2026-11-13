@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { aparelhoConectado } from "@/lib/acesso-fornecedor";
 import { dentroDoLimite, muitasTentativas, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS, type StatusCorrida } from "@/lib/status";
@@ -20,9 +21,10 @@ export async function GET(req: Request) {
   if ("erro" in periodo) return erroJson(periodo.erro, 400);
   try {
     const db = supabaseAdmin();
-    const { data: forn, error } = await db.from("fornecedores").select("id,nome,ativo").eq("token_portal", token).maybeSingle();
+    const { data: forn, error } = await db.from("fornecedores").select("id,nome,ativo,token_portal,codigo_acesso").eq("token_portal", token).maybeSingle();
     if (error) throw new Error(error.message);
     if (!forn?.ativo) return erroJson("Este link não vale mais. Peça um novo ao planejamento.", 404);
+    if (!aparelhoConectado(req, forn)) return Response.json({ erro: "Entre com seu e-mail e código de acesso.", login: true }, { status: 401 });
     const lista = await buscarPaginado<any>((de, ate) => db.from("corridas_lista")
       .select("id,protocolo,status,tipo,data_hora_prevista,origem,destino,qtd_passageiros,solicitante_nome,solicitante_setor,motorista,veiculo_placa,valor_informado,observacoes")
       .eq("fornecedor_id", forn.id)

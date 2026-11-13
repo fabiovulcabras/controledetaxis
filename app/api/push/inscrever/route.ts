@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { dentroDoLimite, ipDe, muitasTentativas, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro, usuarioDaRequisicao } from "@/lib/auth-api";
-import { aparelhoDoFornecedor } from "@/lib/acesso-fornecedor";
+import { aparelhoConectado, aparelhoDoFornecedor } from "@/lib/acesso-fornecedor";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +28,10 @@ export async function POST(req: Request) {
       linha.solicitante_id = data.id;
     } else if (tipo === "fornecedor") {
       if (!tokenValido(corpo?.token)) return erroJson("Link inválido.", 404);
-      const { data: f } = await db.from("fornecedores").select("id,ativo").eq("token_portal", corpo.token).maybeSingle();
-      // Pelo link de uma corrida, só o aparelho já identificado como do fornecedor (o solicitante também vê esse link)
+      const { data: f } = await db.from("fornecedores").select("id,ativo,token_portal,codigo_acesso").eq("token_portal", corpo.token).maybeSingle();
+      // Pelo portal, só o aparelho que entrou com e-mail e código. Pelo link de uma corrida, só o aparelho já identificado como do fornecedor (o solicitante também vê esse link)
       const { data: c } = f ? { data: null } : await db.from("corridas").select("fornecedor_id").eq("token_fornecedor", corpo.token).maybeSingle();
-      const fornecedorId = f?.ativo ? f.id : c?.fornecedor_id && await aparelhoDoFornecedor(req, c.fornecedor_id) ? c.fornecedor_id : null;
+      const fornecedorId = f ? (f.ativo && aparelhoConectado(req, f) ? f.id : null) : c?.fornecedor_id && await aparelhoDoFornecedor(req, c.fornecedor_id) ? c.fornecedor_id : null;
       if (!fornecedorId) return erroJson("Este link não vale mais.", 404);
       linha.fornecedor_id = fornecedorId;
     } else if (tipo === "planejamento") {

@@ -1,4 +1,5 @@
 "use client";
+import { textoPortal } from "@/lib/portal-texto";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
@@ -52,6 +53,7 @@ export default function Cadastros() {
         fields={[
           { key: "nome", label: "Nome", required: true },
           { key: "telefone_whatsapp", label: "WhatsApp que recebe as corridas", required: true, mascara: "whatsapp", unico: true, placeholder: "(11) 3333-4444" },
+          { key: "email", label: "E-mail de login do portal", type: "email", unico: true, placeholder: "contato@fornecedor.com.br", ajuda: "Com o código de acesso (tela Portais dos fornecedores) como senha, é o login do portal do fornecedor." },
           { key: "cnpj", label: "CNPJ", mascara: "cnpj" },
           { key: "prazo_resposta_min", label: "Prazo para responder (min)", type: "number", required: true, ajuda: "Corridas imediatas. Agendadas usam o parâmetro prazo_agendada_min." },
           { key: "bandeirada", label: "Bandeirada (R$)", type: "number", esconderNaTabela: true, ajuda: "Com o valor por km, calcula a tarifa de referência de cada corrida." },
@@ -134,13 +136,13 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
 }
 
 /** Link fixo do portal do fornecedor: todas as corridas dele, sem depender de cada mensagem. */
-function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome: string; telefone_whatsapp: string; token_portal?: string | null; codigo_acesso?: string | null }; recarregar: () => Promise<void> }) {
+function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome: string; telefone_whatsapp: string; token_portal?: string | null; codigo_acesso?: string | null; email?: string | null }; recarregar: () => Promise<void> }) {
   const { confirmar } = useRetorno();
   const [aberto, setAberto] = useState(false);
   const [msg, setMsg] = useState("");
   const base = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${base}/fornecedor/${fornecedor.token_portal}`;
-  const texto = `Olá, ${fornecedor.nome}! Este é o seu portal de corridas: ${url}\nPor ele você vê as corridas para responder, as em andamento e as encerradas. Salve nos favoritos.${fornecedor.codigo_acesso ? `\n\nSeu código de acesso: *${fornecedor.codigo_acesso}*. Se abrir uma corrida pelo link da mensagem e a página pedir, digite este código (só uma vez por celular). Não compartilhe.` : ""}`;
+  const texto = textoPortal(fornecedor, url);
   const copiar = async () => {
     try { await navigator.clipboard.writeText(url); setMsg("Link copiado."); } catch { setMsg("Não foi possível copiar; selecione o link e copie."); }
   };
@@ -162,7 +164,7 @@ function LinkPortal({ fornecedor, recarregar }: { fornecedor: { id: string; nome
             ) : (
             <fieldset className="secao" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
               <legend>Link fixo</legend>
-              <p className="secao-ajuda">Quem tiver o link vê e responde as corridas deste fornecedor.{fornecedor.codigo_acesso && <> Código de acesso: <strong className="protocolo">{fornecedor.codigo_acesso}</strong>.</>}</p>
+              <p className="secao-ajuda">Para entrar no portal, o fornecedor usa o e-mail cadastrado e, como senha, o código de acesso.{fornecedor.codigo_acesso && <> Código: <strong className="protocolo">{fornecedor.codigo_acesso}</strong>.</>}{!fornecedor.email && <span className="err"> Cadastre o e-mail deste fornecedor para ele conseguir entrar.</span>}</p>
               <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link do portal" />
               <a className="botao-whatsapp" href={linkWhatsApp(fornecedor.telefone_whatsapp, texto)} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(fornecedor.telefone_whatsapp)} pelo WhatsApp</a>
               <div className="row">

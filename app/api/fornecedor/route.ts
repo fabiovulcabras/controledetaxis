@@ -66,10 +66,10 @@ export async function POST(req: Request) {
       const { data: f, error } = await supabaseAdmin().from("fornecedores").select("token_portal,codigo_acesso").eq("id", c.fornecedor_id).maybeSingle();
       if (error) throw new Error(error.message.includes("codigo_acesso") ? "O banco ainda não tem o código de acesso. Rode supabase/004_acesso_fornecedor.sql no Supabase." : error.message);
       if (!f || f.codigo_acesso !== codigo) return erroJson("Código incorreto. Confira com o planejamento.", 403);
-      return Response.json({ ok: true }, { headers: { "Set-Cookie": cookieDoFornecedor(req, f.token_portal) } });
+      return Response.json({ ok: true }, { headers: { "Set-Cookie": cookieDoFornecedor(req, f) } });
     }
     if (!(await aparelhoDoFornecedor(req, c.fornecedor_id))) {
-      return erroJson("Só o fornecedor pode responder esta corrida. Abra pelo seu portal ou digite o código de acesso.", 403);
+      return erroJson("Só o fornecedor pode responder esta corrida. Entre no seu portal ou digite o código de acesso.", 403);
     }
 
     const repo = repoServidor();

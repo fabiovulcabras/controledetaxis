@@ -107,7 +107,7 @@ export default function RespostaFornecedor() {
       {!c.autorizado && pendente && (
         <form className="card" onSubmit={entrar}>
           <h3 style={{ marginTop: 0 }}>Responder é só para o fornecedor</h3>
-          <p className="pagina-sub">Para aceitar, recusar ou informar o valor, abra esta corrida pelo <strong>seu portal de corridas</strong> ou digite o <strong>código de acesso</strong> que o planejamento enviou a você. Basta fazer isso uma vez neste celular.</p>
+          <p className="pagina-sub">Para aceitar, recusar ou informar o valor, entre no <strong>seu portal de corridas</strong> ou digite o <strong>código de acesso</strong> que o planejamento enviou a você. Basta fazer isso uma vez neste celular.</p>
           <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
             <Campo rotulo="Código de acesso (6 números)"><input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))} placeholder="000000" /></Campo>
             <button className="pri botao-grande" disabled={ocupado || codigo.length !== 6}>{ocupado ? "Conferindo…" : "Entrar"}</button>

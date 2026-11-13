@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { cookieDoFornecedor } from "@/lib/acesso-fornecedor";
+import { aparelhoConectado } from "@/lib/acesso-fornecedor";
 import { dentroDoLimite, muitasTentativas, tokenValido } from "@/lib/links-api";
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { STATUS, type StatusCorrida } from "@/lib/status";
@@ -18,9 +18,11 @@ export async function GET(req: Request) {
   if (!(await dentroDoLimite(`portal:${token}`, 60, 60))) return muitasTentativas();
   try {
     const db = supabaseAdmin();
-    const { data: forn, error } = await db.from("fornecedores").select("id,nome,ativo").eq("token_portal", token).maybeSingle();
+    const { data: forn, error } = await db.from("fornecedores").select("id,nome,ativo,token_portal,codigo_acesso").eq("token_portal", token).maybeSingle();
     if (error) throw new Error(error.message.includes("token_portal") ? "O banco ainda não tem o portal do fornecedor. Rode supabase/003_melhorias.sql no Supabase." : error.message);
     if (!forn?.ativo) return erroJson("Este link não vale mais. Peça um novo ao planejamento.", 404);
+    // Só o aparelho que entrou com e-mail e código de acesso vê as corridas
+    if (!aparelhoConectado(req, forn)) return Response.json({ erro: "Entre com seu e-mail e código de acesso.", login: true }, { status: 401 });
     // Período escolhido no topo do portal (padrão: últimos 45 dias). Vale para as encerradas e o valor concluído;
     // as corridas para responder e em andamento aparecem sempre, porque pedem ação do fornecedor.
     const q = new URL(req.url).searchParams;
@@ -46,7 +48,6 @@ export async function GET(req: Request) {
     });
     const lista = (ativas.data ?? []) as any[];
     const concluidas = encerradas.filter((c) => ["concluida", "validada", "contestada"].includes(c.status));
-    // Abrir o portal identifica este aparelho como do fornecedor: os links /f/… passam a permitir responder
     return Response.json({
       fornecedor: forn.nome,
       responder: lista.filter((c) => ["enviada", "sem_resposta"].includes(c.status)).map(item),
@@ -55,7 +56,7 @@ export async function GET(req: Request) {
       qtd_encerradas: encerradas.length,
       total_periodo: brl(concluidas.reduce((s: number, c: any) => s + Number(c.valor_informado ?? 0), 0)),
       qtd_concluidas: concluidas.length,
-    }, { headers: { "Set-Cookie": cookieDoFornecedor(req, token) } });
+    });
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);
   }

@@ -1,4 +1,6 @@
 import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
+import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemFornecedor, entradasDoAparelho } from "../lib/acesso-fornecedor";
+import { textoPortal } from "../lib/portal-texto";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -1064,5 +1066,37 @@ describe("busca paginada", () => {
     expect((await buscarPaginado(pagina, 20000)).length).toBe(2350);
     expect((await buscarPaginado(pagina, 1001)).length).toBe(1001);
     expect((await buscarPaginado(pagina, 1000)).length).toBe(1000);
+  });
+});
+
+describe("login do portal do fornecedor", () => {
+  const f = { token_portal: "a".repeat(64), codigo_acesso: "123456" };
+  const outro = { token_portal: "b".repeat(64), codigo_acesso: "654321" };
+  const req = (cookie?: string) => new Request("https://taxis.exemplo/api/portal", { headers: cookie ? { cookie } : {} });
+  const valorCookie = (setCookie: string) => setCookie.split(";")[0];
+  it("só conecta o aparelho com o link e o código atuais", () => {
+    const c = valorCookie(cookieDoFornecedor(req(), f));
+    expect(aparelhoConectado(req(c), f)).toBe(true);
+    expect(aparelhoConectado(req(c), { ...f, codigo_acesso: "000000" })).toBe(false);
+    expect(aparelhoConectado(req(c), outro)).toBe(false);
+    expect(aparelhoConectado(req(), f)).toBe(false);
+    // cookie antigo (só o token do portal, sem assinatura) não vale mais
+    expect(aparelhoConectado(req(`forn_acesso=${f.token_portal}`), f)).toBe(false);
+  });
+  it("guarda mais de um fornecedor e sai só do escolhido", () => {
+    const c1 = valorCookie(cookieDoFornecedor(req(), f));
+    const c2 = valorCookie(cookieDoFornecedor(req(c1), outro));
+    expect(entradasDoAparelho(req(c2)).length).toBe(2);
+    const c3 = valorCookie(cookieSemFornecedor(req(c2), outro.token_portal));
+    expect(aparelhoConectado(req(c3), f)).toBe(true);
+    expect(aparelhoConectado(req(c3), outro)).toBe(false);
+    expect(cookieSemFornecedor(req(c1), f.token_portal)).toMatch(/Max-Age=0/);
+    expect(cookieDoFornecedor(req(), f)).toMatch(/HttpOnly/);
+    expect(assinaturaAcesso(f)).toMatch(/^[0-9a-f]{24}$/);
+  });
+  it("mensagem do portal leva e-mail e código", () => {
+    const t = textoPortal({ nome: "Táxi X", email: "x@taxi.com", codigo_acesso: "123456" }, "https://p/fornecedor/abc");
+    expect(t).toContain("E-mail: x@taxi.com");
+    expect(t).toContain("*123456*");
   });
 });
