@@ -57,7 +57,7 @@ export default function Cadastros() {
           { key: "cnpj", label: "CNPJ", mascara: "cnpj" },
           { key: "prazo_resposta_min", label: "Prazo para responder (min)", type: "number", required: true, ajuda: "Corridas imediatas. Agendadas usam o parâmetro prazo_agendada_min." },
           { key: "bandeirada", label: "Bandeirada (R$)", type: "number", esconderNaTabela: true, ajuda: "Com o valor por km, calcula a tarifa de referência de cada corrida." },
-          { key: "valor_km", label: "Valor por km (R$)", type: "number", esconderNaTabela: true, ajuda: "Valor informado acima da referência + tolerancia_trajeto_pct gera alerta." },
+          { key: "valor_km", label: "Valor por km (R$)", type: "number", esconderNaTabela: true, ajuda: "Tarifa por km rodado. Usada no comparativo KM × tabela (Relatórios) e no alerta de valor acima da referência (tolerancia_trajeto_pct)." },
         ]} />}
 
       {aba === "precos" && <TabelaPrecos />}

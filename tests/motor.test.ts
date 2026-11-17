@@ -3,6 +3,8 @@ import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemForne
 import { textoPortal } from "../lib/portal-texto";
 import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
 import { erroArquivo } from "../lib/extras";
+import { montarComparativo, valorPago, valorPorKm } from "../lib/comparativo-km";
+import { pontoCadastrado } from "../lib/km-corrida";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -1120,5 +1122,43 @@ describe("espelho do mês", () => {
     expect(erroArquivo({ size: 1000, type: "image/jpeg" }, true)).toMatch(/PDF/);
     expect(erroArquivo({ size: 1000, type: "application/pdf" }, true)).toBe(null);
     expect(erroArquivo(null)).toMatch(/comprovante/);
+  });
+});
+
+describe("comparativo KM × tabela", () => {
+  const amanda = { id: "a", nome: "Amanda", valor_km: 5.55, bandeirada: null };
+  const reinaldo = { id: "r", nome: "Reinaldo", valor_km: 6.88, bandeirada: 0 };
+  const base = { protocolo: "TX", data_hora_prevista: "2026-11-10T12:00:00Z", origem: "CD", destino: "Centro", distancia_fonte: "ors", preco_descricao: "Extrema – Centro", valor_informado: null, valor_faturado: null };
+  it("tarifa por km com bandeirada", () => {
+    expect(valorPorKm(10, amanda)).toBe(55.5);
+    expect(valorPorKm(10, { valor_km: 5, bandeirada: 4.5 })).toBe(54.5);
+    expect(valorPorKm(null, amanda)).toBe(null);
+    expect(valorPorKm(10, { valor_km: null, bandeirada: 5 })).toBe(null);
+  });
+  it("valor pago: fatura, depois tabela do próprio fornecedor, depois informado", () => {
+    expect(valorPago({ ...base, id: "1", fornecedor_id: "a", distancia_km: 1, valor_tabela: 40, preco_fornecedor_id: "a", valor_faturado: 45 }).valor).toBe(45);
+    expect(valorPago({ ...base, id: "1", fornecedor_id: "a", distancia_km: 1, valor_tabela: 40, preco_fornecedor_id: "a" }).base).toBe("tabela");
+    expect(valorPago({ ...base, id: "1", fornecedor_id: "a", distancia_km: 1, valor_tabela: 40, preco_fornecedor_id: "r", valor_informado: 50 }).valor).toBe(50);
+  });
+  it("totais por fornecedor, trecho e 'se todas fossem de um'", () => {
+    const c = montarComparativo([
+      { ...base, id: "1", fornecedor_id: "a", distancia_km: 10, valor_tabela: 50, preco_fornecedor_id: "a" },
+      { ...base, id: "2", fornecedor_id: "r", distancia_km: 10, valor_tabela: 60, preco_fornecedor_id: "r" },
+      { ...base, id: "3", fornecedor_id: "a", distancia_km: null, valor_tabela: 50, preco_fornecedor_id: "a" },
+    ], [amanda, reinaldo]);
+    const a = c.porFornecedor.find((l) => l.chave === "a")!;
+    expect(a.corridas).toBe(1); expect(a.porKm).toBe(55.5); expect(a.diferenca).toBe(5.5);
+    expect(c.porFornecedor.find((l) => l.chave === "r")!.diferenca).toBe(8.8);
+    expect(c.porTrecho[0].corridas).toBe(2);
+    expect(c.seTodasCom.find((s) => s.id === "a")!.porKm).toBe(111);
+    expect(c.seTodasCom.find((s) => s.id === "r")!.porKm).toBe(137.6);
+    expect(c.semKm).toBe(1);
+  });
+  it("acha o ponto de um local cadastrado pelo texto da corrida", () => {
+    const lugares = [{ nome: "CD Extrema", endereco: "Estrada Municipal Luiz Lopes Neto, 21", lat: -22.85, lng: -46.31 }, { nome: "Sem mapa", endereco: "Rua X", lat: null, lng: null }];
+    expect(pontoCadastrado("CD Extrema – Estrada Municipal Luiz Lopes Neto, 21", lugares)).toEqual({ lat: -22.85, lng: -46.31 });
+    expect(pontoCadastrado("cd extrema", lugares)).toEqual({ lat: -22.85, lng: -46.31 });
+    expect(pontoCadastrado("Sem mapa", lugares)).toBe(null);
+    expect(pontoCadastrado("Rodoviária", lugares)).toBe(null);
   });
 });

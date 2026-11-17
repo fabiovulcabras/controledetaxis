@@ -1,3 +1,4 @@
+import { rotaEntre } from "@/lib/distancia";
 import { chavesConferem, chavesVapid } from "@/lib/webpush";
 import { createClient } from "@supabase/supabase-js";
 import { modoEnvio } from "@/lib/whatsapp/transporte";
@@ -68,6 +69,15 @@ export async function GET() {
     : !chavesConferem(vapid)
       ? { ok: false, item: "Chaves das notificações não são do mesmo par", detalhe: "VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY precisam vir da MESMA abertura de /api/push/gerar-chaves. Copie as duas de novo e faça redeploy." }
       : { ok: true, item: `Notificações push configuradas (${vapid.assunto})` });
+  // Distância por ruas: testa a chave do OpenRouteService com um trajeto curto em Extrema
+  if (process.env.ORS_API_KEY) {
+    const r = await rotaEntre({ lat: -22.8546, lng: -46.3178 }, { lat: -22.8743, lng: -46.3233 }).catch(() => null);
+    itens.push(r?.fonte === "ors"
+      ? { ok: true, item: `Distância por ruas pelo OpenRouteService (teste: ${r.km.toLocaleString("pt-BR")} km)` }
+      : { ok: false, item: "OpenRouteService não respondeu", detalhe: "Confira ORS_API_KEY na Vercel (sem espaços). Enquanto isso, o app usa o OSRM público ou a estimativa." });
+  } else {
+    itens.push({ ok: false, item: "Distância por ruas sem OpenRouteService", detalhe: "Crie ORS_API_KEY na Vercel (chave gratuita em openrouteservice.org). Sem ela, usa o OSRM público, que pode sair do ar." });
+  }
   if (process.env.QSTASH_TOKEN) {
     const chaves = !!(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY);
     const temEndereco = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);

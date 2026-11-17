@@ -6,7 +6,6 @@ import { dentroDoLimite, ipDe, muitasTentativas, repoServidor, solicitantePorTok
 import { erroJson, mensagemDeErro } from "@/lib/auth-api";
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "@/lib/status";
 import { formatarDataHora } from "@/lib/datas";
-import { distanciaTrajeto } from "@/lib/distancia";
 import { locaisDoPedido } from "@/lib/locais";
 import type { Corrida } from "@/lib/bot/tipos";
 
@@ -128,16 +127,16 @@ export async function POST(req: Request) {
     if ((count ?? 0) >= limiteHora) return erroJson(`Limite de ${limiteHora} pedidos por hora atingido. Se precisar de mais, fale com o planejamento.`, 429);
 
     const pontos = { origem_lat: num(corpo.origem_lat), origem_lng: num(corpo.origem_lng), destino_lat: num(corpo.destino_lat), destino_lng: num(corpo.destino_lng) };
-    const distancia = pontos.origem_lat != null && pontos.origem_lng != null && pontos.destino_lat != null && pontos.destino_lng != null
-      ? await distanciaTrajeto({ lat: pontos.origem_lat, lng: pontos.origem_lng }, { lat: pontos.destino_lat, lng: pontos.destino_lng }) : null;
 
     const corrida = await repo.criarCorrida({
       solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim().slice(0, 200) || null : null, motivo,
       ...(observacoes ? { observacoes } : {}),
-      ...pontos, ...(distancia != null ? { distancia_km: distancia } : {}), ...(chave ? { chave_envio: chave } : {}),
+      ...pontos,  ...(chave ? { chave_envio: chave } : {}),
     });
 
+    // Distância por ruas (OpenRouteService), gravada antes do envio
+    await repo.garantirDistancia?.(corrida).catch(() => null);
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);

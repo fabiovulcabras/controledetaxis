@@ -4,6 +4,8 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { KpiCard } from "@/components/UI";
 import { Filtros, TopoPagina } from "@/components/Formulario";
+import { useApp } from "@/components/AuthGate";
+import ComparativoKm from "@/components/ComparativoKm";
 import Barras from "@/components/Barras";
 import { useRetorno } from "@/components/Retorno";
 import { brl, dataSP, partesSP } from "@/lib/datas";
@@ -43,6 +45,7 @@ function intervalo(p: Periodo, agora = new Date()): [string, string] {
 
 /** Gasto e desempenho no período, com filtro por fornecedor e pessoa autorizada. */
 export default function Relatorios() {
+  const { planejamento } = useApp();
   const { avisar } = useRetorno();
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [[de, ate], setIntervalo] = useState<[string, string]>(() => intervalo("mes"));
@@ -164,6 +167,8 @@ export default function Relatorios() {
         {!forn.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma viagem enviada no período."}</p>}
         {(r?.acima_tabela ?? 0) > 0 && <p className="resumo-entrada" style={{ marginTop: 10 }}><Link href="/corridas">Ver as corridas</Link> — as que passaram da tabela aparecem com o valor de tabela em vermelho.</p>}
       </section>
+
+      <ComparativoKm de={deIso(de).toISOString()} ate={new Date(deIso(ate, true).getTime() + 60_000).toISOString()} fornecedorId={fornecedor} podeCalcular={planejamento} />
 
       <section className="card">
         <div className="repor-topo"><div><h3>Corridas por dia</h3><p className="repor-resumo">{r?.total ?? 0} corrida(s) · {brl(r?.valor_total ?? 0)} informado</p></div></div>

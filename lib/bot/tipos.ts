@@ -27,6 +27,7 @@ export type Corrida = {
   token_fornecedor?: string;
   fornecedores_tentados?: string[];
   distancia_km?: number | null;
+  distancia_fonte?: string | null;
   chave_envio?: string | null;
   /** Valor da tabela de preços do fornecedor para esta corrida (migração 008) */
   valor_tabela?: number | null; preco_descricao?: string | null; preco_fornecedor_id?: string | null; preco_calculado_em?: string | null;
@@ -92,6 +93,8 @@ export interface Repo {
   parametro(chave: string): Promise<string | null>;
   /** Motivos de corrida ativos (Cadastros › Motivos), na ordem cadastrada. */
   motivos(): Promise<string[]>;
+  /** Calcula e grava a distância por ruas da corrida, se ainda não tiver (opcional: os testes não usam). */
+  garantirDistancia?(c: Corrida): Promise<void>;
 
   conversa(telefone: string): Promise<Conversa | null>;
   salvarConversa(telefone: string, etapa: string, dados: Record<string, any>, agora: Date): Promise<void>;
