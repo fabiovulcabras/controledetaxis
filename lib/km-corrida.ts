@@ -12,9 +12,30 @@ type Corr = {
 };
 type Lugar = { nome: string; endereco: string; lat: number | null; lng: number | null };
 
-/** Coordenadas de um endereço escrito pelo Photon (OpenStreetMap), priorizando a região de Extrema. */
-export async function coordenadasDoTexto(texto: string): Promise<Ponto | null> {
+/**
+ * Coordenadas de um endereço escrito pelo Google Geocoding (chave GOOGLE_MAPS_API_KEY, com a "Geocoding API" ativada),
+ * priorizando a região de Extrema. Null sem chave, sem resultado ou com erro.
+ */
+async function coordenadasGoogle(texto: string): Promise<(Ponto & { google: true }) | null> {
+  const chave = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!chave) return null;
+  const caixa = `${REGIAO.lat - 0.6},${REGIAO.lng - 0.6}|${REGIAO.lat + 0.6},${REGIAO.lng + 0.6}`;
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(texto.slice(0, 200))}&bounds=${encodeURIComponent(caixa)}&region=br&components=country:BR&language=pt-BR&key=${chave}`, {
+      cache: "no-store", signal: AbortSignal.timeout(4000),
+    });
+    const j = await r.json().catch(() => null);
+    if (j?.status && !["OK", "ZERO_RESULTS"].includes(j.status)) console.error("Google Geocoding:", j.status, j.error_message ?? "");
+    const loc = j?.results?.[0]?.geometry?.location;
+    return loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lng) ? { lat: loc.lat, lng: loc.lng, google: true } : null;
+  } catch { return null; }
+}
+
+/** Coordenadas de um endereço escrito: Google Geocoding; sem chave ou sem resultado, Photon (OpenStreetMap). */
+export async function coordenadasDoTexto(texto: string): Promise<(Ponto & { google?: true }) | null> {
   if (String(texto).trim().length < 4) return null;
+  const g = await coordenadasGoogle(texto);
+  if (g) return g;
   try {
     const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(texto.slice(0, 160))}&limit=1&lat=${REGIAO.lat}&lon=${REGIAO.lng}&bbox=-74.0,-33.8,-34.7,5.3`, {
       headers: { "User-Agent": "ControleDeTaxis/1.0" }, cache: "no-store", signal: AbortSignal.timeout(4000),
@@ -57,8 +78,9 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
     if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) return { p: { lat: Number(lat), lng: Number(lng) }, novo: false };
     const cad = pontoCadastrado(texto, lugares);
     if (cad) return { p: cad, novo: true };
+    // Coordenadas do Google não ficam gravadas (os termos do Google Maps limitam guardar o resultado); só a distância
     const g = await coordenadasDoTexto(texto);
-    return g ? { p: g, novo: true } : null;
+    return g ? { p: { lat: g.lat, lng: g.lng }, novo: !g.google } : null;
   };
   const o = await ponto(c.origem_lat, c.origem_lng, c.origem);
   const d = o ? await ponto(c.destino_lat, c.destino_lng, c.destino) : null;
@@ -68,7 +90,8 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
   if (o.novo) Object.assign(campos, { origem_lat: o.p.lat, origem_lng: o.p.lng });
   if (d.novo) Object.assign(campos, { destino_lat: d.p.lat, destino_lng: d.p.lng });
   let { error } = await db.from("corridas").update(campos).eq("id", c.id);
-  if (error && /distancia_fonte|distancia_calculada_em/.test(error.message)) { // sem a migração 016: grava só a distância
+  if (error && /distancia_fonte|distancia_calculada_em/.test(error.message)) {
+    // Sem a migração 016 (colunas) ou a 018 (fonte "google"): grava só a distância
     delete campos.distancia_fonte; delete campos.distancia_calculada_em;
     ({ error } = await db.from("corridas").update(campos).eq("id", c.id));
   }

@@ -69,15 +69,22 @@ export async function GET() {
     : !chavesConferem(vapid)
       ? { ok: false, item: "Chaves das notificações não são do mesmo par", detalhe: "VAPID_PUBLIC_KEY e VAPID_PRIVATE_KEY precisam vir da MESMA abertura de /api/push/gerar-chaves. Copie as duas de novo e faça redeploy." }
       : { ok: true, item: `Notificações push configuradas (${vapid.assunto})` });
-  // Distância por ruas: testa a chave do OpenRouteService com um trajeto curto em Extrema
-  if (process.env.ORS_API_KEY) {
-    const r = await rotaEntre({ lat: -22.8546, lng: -46.3178 }, { lat: -22.8743, lng: -46.3233 }).catch(() => null);
-    itens.push(r?.fonte === "ors"
-      ? { ok: true, item: `Distância por ruas pelo OpenRouteService (teste: ${r.km.toLocaleString("pt-BR")} km)` }
+  // Distância por ruas: testa as chaves com um trajeto curto em Extrema (Google primeiro, depois OpenRouteService)
+  const teste = process.env.GOOGLE_MAPS_API_KEY || process.env.ORS_API_KEY
+    ? await rotaEntre({ lat: -22.8546, lng: -46.3178 }, { lat: -22.8743, lng: -46.3233 }).catch(() => null) : null;
+  const km = teste ? `teste: ${teste.km.toLocaleString("pt-BR")} km` : "";
+  if (process.env.GOOGLE_MAPS_API_KEY) {
+    itens.push(teste?.fonte === "google"
+      ? { ok: true, item: `Distância por ruas pelo Google Maps (${km})` }
+      : { ok: false, item: "Google Maps não respondeu", detalhe: `Confira GOOGLE_MAPS_API_KEY na Vercel e, no Google Cloud, se a "Routes API" e a "Geocoding API" estão ativadas, se há faturamento ligado e se a chave não está restrita a sites (HTTP referrer). Enquanto isso, usa ${teste?.fonte === "ors" ? "o OpenRouteService" : "o OSRM público ou a estimativa"}.` });
+  } else if (process.env.ORS_API_KEY) {
+    itens.push(teste?.fonte === "ors"
+      ? { ok: true, item: `Distância por ruas pelo OpenRouteService (${km})` }
       : { ok: false, item: "OpenRouteService não respondeu", detalhe: "Confira ORS_API_KEY na Vercel (sem espaços). Enquanto isso, o app usa o OSRM público ou a estimativa." });
   } else {
-    itens.push({ ok: false, item: "Distância por ruas sem OpenRouteService", detalhe: "Crie ORS_API_KEY na Vercel (chave gratuita em openrouteservice.org). Sem ela, usa o OSRM público, que pode sair do ar." });
+    itens.push({ ok: false, item: "Distância por ruas sem Google Maps nem OpenRouteService", detalhe: "Crie GOOGLE_MAPS_API_KEY ou ORS_API_KEY na Vercel. Sem elas, usa o OSRM público, que pode sair do ar." });
   }
+  if (process.env.GOOGLE_MAPS_API_KEY && process.env.ORS_API_KEY) itens.push({ ok: true, item: "OpenRouteService de reserva, se o Google falhar" });
   if (process.env.QSTASH_TOKEN) {
     const chaves = !!(process.env.QSTASH_CURRENT_SIGNING_KEY && process.env.QSTASH_NEXT_SIGNING_KEY);
     const temEndereco = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);

@@ -10,7 +10,7 @@ import { montarComparativo, type CorridaKm, type FornecedorKm } from "@/lib/comp
 
 const fmtKm = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`;
 const dif = (n: number) => <span className={n > 0.005 ? "negative" : n < -0.005 ? "positive" : ""}>{n > 0 ? "+" : ""}{brl(n)}</span>;
-const FONTE: Record<string, string> = { ors: "Rota (OpenRouteService)", osrm: "Rota (OSRM)", estimada: "Estimada (linha reta × 1,3)" };
+const FONTE: Record<string, string> = { google: "Rota (Google Maps)", ors: "Rota (OpenRouteService)", osrm: "Rota (OSRM)", estimada: "Estimada (linha reta × 1,3)" };
 
 /**
  * KM × tabela: para as corridas concluídas do período, compara o que foi pago (fatura, tabela ou informado)

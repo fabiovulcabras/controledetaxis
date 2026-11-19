@@ -1,6 +1,6 @@
 export type Ponto = { lat: number; lng: number };
-/** De onde veio a distância: OpenRouteService, OSRM público ou estimativa (linha reta × 1,3). */
-export type FonteDistancia = "ors" | "osrm" | "estimada";
+/** De onde veio a distância: Google Routes, OpenRouteService, OSRM público ou estimativa (linha reta × 1,3). */
+export type FonteDistancia = "google" | "ors" | "osrm" | "estimada";
 
 /** Distância em linha reta (km), pela fórmula de haversine. */
 export function distanciaReta(a: Ponto, b: Ponto): number {
@@ -11,6 +11,26 @@ export function distanciaReta(a: Ponto, b: Ponto): number {
 }
 
 const km = (metros: number) => Math.round(metros / 10) / 100;
+
+/**
+ * Rota de carro pelo Google Routes API (chave GOOGLE_MAPS_API_KEY, com a "Routes API" ativada no Google Cloud).
+ * Sem trânsito (TRAFFIC_UNAWARE): é o nível mais barato e a distância não muda com o horário.
+ */
+async function rotaGoogle(a: Ponto, b: Ponto): Promise<number | null> {
+  const chave = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!chave) return null;
+  const ponto = (p: Ponto) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+  try {
+    const resp = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST", cache: "no-store", signal: AbortSignal.timeout(5000),
+      headers: { "X-Goog-Api-Key": chave, "X-Goog-FieldMask": "routes.distanceMeters", "Content-Type": "application/json" },
+      body: JSON.stringify({ origin: ponto(a), destination: ponto(b), travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE", languageCode: "pt-BR", units: "METRIC" }),
+    });
+    if (!resp.ok) { console.error("Google Routes respondeu", resp.status, (await resp.text()).slice(0, 300)); return null; }
+    const metros = (await resp.json())?.routes?.[0]?.distanceMeters;
+    return Number.isFinite(metros) ? km(metros) : null;
+  } catch { return null; }
+}
 
 /** Rota de carro pelo OpenRouteService (chave ORS_API_KEY; plano gratuito). Null se não houver chave ou não responder. */
 async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
@@ -40,11 +60,13 @@ async function rotaOsrm(a: Ponto, b: Ponto): Promise<number | null> {
 }
 
 /**
- * Distância do trajeto por ruas (km): OpenRouteService; se não houver chave ou falhar, OSRM público;
+ * Distância do trajeto por ruas (km): Google Routes; sem chave ou com falha, OpenRouteService; depois, OSRM público;
  * por último, a linha reta × 1,3 (aproximação comum para trajetos urbanos).
  */
 export async function rotaEntre(a: Ponto, b: Ponto): Promise<{ km: number; fonte: FonteDistancia }> {
   if (distanciaReta(a, b) < 0.05) return { km: 0, fonte: "estimada" };
+  const google = await rotaGoogle(a, b);
+  if (google != null) return { km: google, fonte: "google" };
   const ors = await rotaOrs(a, b);
   if (ors != null) return { km: ors, fonte: "ors" };
   const osrm = await rotaOsrm(a, b);
