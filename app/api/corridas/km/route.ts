@@ -12,7 +12,9 @@ const PENDENTE = "distancia_km.is.null,distancia_fonte.is.null,distancia_fonte.e
 /**
  * Completa as corridas do período: distância por ruas (sem distância ou só estimada) e valor da tabela
  * (fornecedor definido e tabela ainda não calculada). Processa um lote por chamada; a tela chama de novo
- * enquanto houver "restantes". Corpo: { de, ate, fornecedorId?, concluidas?, ids?, pular? }.
+ * enquanto houver "restantes". Corpo: { de, ate, fornecedorId?, concluidas?, ids?, pular?, todas?, apos? }.
+ * Com `todas`, refaz o km de todas as corridas do período (ex.: depois de mudar a regra para o menor trajeto),
+ * em ordem de id, continuando a partir de `apos`.
  */
 export async function POST(req: Request) {
   const u = await usuarioDaRequisicao(req, ["admin", "planejamento"]);
@@ -25,8 +27,13 @@ export async function POST(req: Request) {
   try {
     const db = supabaseAdmin();
     let q = db.from("corridas").select("id,origem,destino,origem_lat,origem_lng,destino_lat,destino_lng,distancia_km,distancia_fonte,fornecedor_id,preco_calculado_em");
+    const todas = !ids.length && !!corpo?.todas;
     if (ids.length) q = q.in("id", ids);
-    else {
+    else if (todas) {
+      q = q.gte("data_hora_prevista", de.toISOString()).lt("data_hora_prevista", ate.toISOString()).order("id").limit(1000);
+      if (typeof corpo?.apos === "string" && corpo.apos) q = q.gt("id", corpo.apos);
+      if (corpo?.fornecedorId) q = q.eq("fornecedor_id", corpo.fornecedorId);
+    } else {
       q = q.gte("data_hora_prevista", de.toISOString()).lt("data_hora_prevista", ate.toISOString()).or(PENDENTE).order("data_hora_prevista").limit(1000);
       if (corpo?.concluidas) q = q.in("status", ["concluida", "validada", "contestada"]);
       if (corpo?.fornecedorId) q = q.eq("fornecedor_id", corpo.fornecedorId);
@@ -40,7 +47,7 @@ export async function POST(req: Request) {
     let calculadas = 0, tabelas = 0;
     for (const c of fila.slice(0, POR_VEZ) as any[]) {
       let falhou = false;
-      if (ids.length || c.distancia_km == null || !c.distancia_fonte || c.distancia_fonte === "estimada") {
+      if (ids.length || todas || c.distancia_km == null || !c.distancia_fonte || c.distancia_fonte === "estimada") {
         const r = await garantirDistancia(db, c, true, lugares);
         if (!r || r.fonte === "estimada") falhou = true;
         if (r) calculadas++;
@@ -55,7 +62,8 @@ export async function POST(req: Request) {
       }
       if (falhou) falharam.push(c.id);
     }
-    return Response.json({ calculadas, tabelas, falharam, restantes: Math.max(0, fila.length - POR_VEZ) });
+    const lote = fila.slice(0, POR_VEZ) as any[];
+    return Response.json({ calculadas, tabelas, falharam, restantes: Math.max(0, fila.length - POR_VEZ), apos: lote.length ? lote[lote.length - 1].id : null });
   } catch (err) {
     return erroJson(mensagemDeErro(err), 500);
   }

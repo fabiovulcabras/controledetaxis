@@ -1,4 +1,5 @@
 import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
+import { menorKm } from "../lib/distancia";
 import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemFornecedor, entradasDoAparelho } from "../lib/acesso-fornecedor";
 import { textoPortal } from "../lib/portal-texto";
 import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
@@ -1160,5 +1161,13 @@ describe("comparativo KM × tabela", () => {
     expect(pontoCadastrado("cd extrema", lugares)).toEqual({ lat: -22.85, lng: -46.31 });
     expect(pontoCadastrado("Sem mapa", lugares)).toBe(null);
     expect(pontoCadastrado("Rodoviária", lugares)).toBe(null);
+  });
+});
+
+describe("menor trajeto", () => {
+  it("escolhe a rota de menor distância entre as alternativas", () => {
+    expect(menorKm([12345, 9876, 15000])).toBe(9.88);
+    expect(menorKm([undefined, null, 5000])).toBe(5);
+    expect(menorKm([])).toBe(null);
   });
 });

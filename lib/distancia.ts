@@ -12,6 +12,12 @@ export function distanciaReta(a: Ponto, b: Ponto): number {
 
 const km = (metros: number) => Math.round(metros / 10) / 100;
 
+/** Entre as rotas devolvidas, a de menor distância (km). Null se nenhuma tiver distância válida. */
+export function menorKm(metros: unknown[]): number | null {
+  const validos = metros.filter((m) => m != null && m !== "").map(Number).filter((m) => Number.isFinite(m) && m >= 0);
+  return validos.length ? km(Math.min(...validos)) : null;
+}
+
 /**
  * Rota de carro pelo Google Routes API (chave GOOGLE_MAPS_API_KEY, com a "Routes API" ativada no Google Cloud).
  * Sem trânsito (TRAFFIC_UNAWARE): é o nível mais barato e a distância não muda com o horário.
@@ -24,11 +30,11 @@ async function rotaGoogle(a: Ponto, b: Ponto): Promise<number | null> {
     const resp = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
       method: "POST", cache: "no-store", signal: AbortSignal.timeout(5000),
       headers: { "X-Goog-Api-Key": chave, "X-Goog-FieldMask": "routes.distanceMeters", "Content-Type": "application/json" },
-      body: JSON.stringify({ origin: ponto(a), destination: ponto(b), travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE", languageCode: "pt-BR", units: "METRIC" }),
+      // Pede também as rotas alternativas e fica com a de menor km (mesmo que demore mais)
+      body: JSON.stringify({ origin: ponto(a), destination: ponto(b), travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE", computeAlternativeRoutes: true, languageCode: "pt-BR", units: "METRIC" }),
     });
     if (!resp.ok) { console.error("Google Routes respondeu", resp.status, (await resp.text()).slice(0, 300)); return null; }
-    const metros = (await resp.json())?.routes?.[0]?.distanceMeters;
-    return Number.isFinite(metros) ? km(metros) : null;
+    return menorKm(((await resp.json())?.routes ?? []).map((r: any) => r?.distanceMeters));
   } catch { return null; }
 }
 
@@ -72,7 +78,8 @@ async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
     const resp = await fetch("https://api.openrouteservice.org/v2/directions/driving-car", {
       method: "POST", cache: "no-store", signal: AbortSignal.timeout(5000),
       headers: { Authorization: chave, "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ coordinates: [[a.lng, a.lat], [b.lng, b.lat]], instructions: false }),
+      // "shortest": a rota de menor distância, não a mais rápida
+      body: JSON.stringify({ coordinates: [[a.lng, a.lat], [b.lng, b.lat]], preference: "shortest", instructions: false }),
     });
     if (!resp.ok) { console.error("OpenRouteService respondeu", resp.status, (await resp.text()).slice(0, 200)); return null; }
     const metros = (await resp.json())?.routes?.[0]?.summary?.distance;
@@ -83,16 +90,15 @@ async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
 /** Rota pelo servidor público do OSRM (sem garantia; só reserva). */
 async function rotaOsrm(a: Ponto, b: Ponto): Promise<number | null> {
   try {
-    const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false`, {
+    const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false&alternatives=3`, {
       signal: AbortSignal.timeout(3000), headers: { "User-Agent": "ControleDeTaxis/1.0" }, cache: "no-store",
     });
-    const metros = (await resp.json())?.routes?.[0]?.distance;
-    return resp.ok && Number.isFinite(metros) ? km(metros) : null;
+    return resp.ok ? menorKm(((await resp.json())?.routes ?? []).map((r: any) => r?.distance)) : null;
   } catch { return null; }
 }
 
 /**
- * Distância do trajeto por ruas (km): Google Routes; sem chave ou com falha, OpenRouteService; depois, OSRM público;
+ * Distância do trajeto por ruas (km), sempre pelo trajeto de MENOR distância (não o mais rápido): Google Routes; sem chave ou com falha, OpenRouteService; depois, OSRM público;
  * por último, a linha reta × 1,3 (aproximação comum para trajetos urbanos).
  */
 export async function rotaEntre(a: Ponto, b: Ponto): Promise<{ km: number; fonte: FonteDistancia }> {

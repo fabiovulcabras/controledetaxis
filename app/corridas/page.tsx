@@ -133,16 +133,18 @@ export default function Corridas() {
 
   const [completando, setCompletando] = useState(false);
   /** Calcula km e valor da tabela das corridas do período (filtros de data e fornecedor) que ainda não têm. */
-  const completar = async () => {
+  /** `todas`: refaz o km de todas as corridas do período pelo menor trajeto (não só das que estão sem). */
+  const completar = async (todas = false) => {
     setCompletando(true);
     const pular: string[] = [];
-    let km = 0, tabelas = 0;
+    let km = 0, tabelas = 0, apos: string | null = null;
     try {
-      for (let rodada = 0; rodada < 80; rodada++) {
-        const r = await chamarApi<{ calculadas: number; tabelas: number; falharam: string[]; restantes: number }>("/api/corridas/km", {
-          de: deIso(de).toISOString(), ate: new Date(deIso(ate, true).getTime() + 60_000).toISOString(), fornecedorId: fornecedor || null, pular,
+      for (let rodada = 0; rodada < 400; rodada++) {
+        const r: { calculadas: number; tabelas: number; falharam: string[]; restantes: number; apos: string | null } = await chamarApi("/api/corridas/km", {
+          de: deIso(de).toISOString(), ate: new Date(deIso(ate, true).getTime() + 60_000).toISOString(), fornecedorId: fornecedor || null,
+          ...(todas ? { todas: true, apos } : { pular }),
         });
-        km += r.calculadas; tabelas += r.tabelas; pular.push(...r.falharam);
+        km += r.calculadas; tabelas += r.tabelas; pular.push(...r.falharam); apos = r.apos;
         if (!r.restantes) break;
       }
       avisar(`Km calculado em ${km} corrida(s) e tabela em ${tabelas}.${pular.length ? ` ${pular.length} ficaram sem rota ou sem preço na tabela do fornecedor.` : ""}`);
@@ -180,7 +182,8 @@ export default function Corridas() {
   return (
     <>
       <TopoPagina titulo="Corridas" subtitulo="Toda corrida nasce com protocolo. A lista atualiza sozinha quando algo muda.">
-        {planejamento && <button type="button" className="ghost" onClick={completar} disabled={completando || !total} title="Calcula a distância por ruas e o valor da tabela das corridas do período que ainda não têm">{completando ? "Calculando…" : "Calcular km e tabela"}</button>}
+        {planejamento && <button type="button" className="ghost" onClick={() => completar()} disabled={completando || !total} title="Calcula a distância por ruas (menor trajeto) e o valor da tabela das corridas do período que ainda não têm">{completando ? "Calculando…" : "Calcular km e tabela"}</button>}
+        {planejamento && <button type="button" className="ghost" onClick={() => completar(true)} disabled={completando || !total} title="Refaz o km de todas as corridas do período pelo trajeto de menor distância">Refazer km (menor trajeto)</button>}
         <button type="button" className="ghost" onClick={exportar} disabled={exportando || !total}>{exportando ? "Exportando…" : "Exportar Excel"}</button>
       </TopoPagina>
       {err && <div className="err">{err}</div>}
