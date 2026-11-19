@@ -17,6 +17,7 @@ import { formatarTelefone } from "@/lib/telefone";
 import { linkWhatsApp, msgNovaCorridaFornecedor } from "@/lib/whatsapp/link";
 import { baixarXlsx } from "@/lib/xlsx";
 import { valorEsperado } from "@/lib/bot/acoes";
+import { valorPorKm } from "@/lib/comparativo-km";
 
 type Corrida = {
   id: string; protocolo: string; status: StatusCorrida; tipo: string; data_hora_prevista: string; criado_em: string;
@@ -33,7 +34,20 @@ type Corrida = {
 /** Linha da view corridas_lista (nomes já juntados). */
 type Linha = Omit<Corrida, "solicitantes" | "fornecedores"> & {
   solicitante_nome: string; solicitante_setor: string | null; fornecedor_nome: string | null;
+  fornecedor_valor_km?: number | null; fornecedor_bandeirada?: number | null; distancia_fonte?: string | null;
 };
+
+const fmtKm = (km: number | null | undefined) => km == null ? null : `${Number(km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km`;
+/** Valor pela tarifa por km do fornecedor da linha (bandeirada + km × valor por km). */
+const porKmDaLinha = (c: Pick<Linha, "distancia_km" | "fornecedor_valor_km" | "fornecedor_bandeirada">) =>
+  valorPorKm(c.distancia_km ?? null, { valor_km: c.fornecedor_valor_km ?? null, bandeirada: c.fornecedor_bandeirada ?? null });
+/** Diferença do valor por km para a tabela: positiva = por km sairia mais caro. */
+function DifKm({ porKm, tabela }: { porKm: number | null; tabela: number | null | undefined }) {
+  if (porKm == null || tabela == null) return null;
+  const d = Math.round((porKm - Number(tabela)) * 100) / 100;
+  if (Math.abs(d) < 0.01) return <small className="bloco texto-fraco">igual à tabela</small>;
+  return <small className={`bloco ${d > 0 ? "negative" : "positive"}`}>{d > 0 ? "+" : ""}{brl(d)} vs tabela</small>;
+}
 type Grupo = "todas" | "abertas" | "excecoes" | "validar" | "validadas" | "canceladas";
 const GRUPOS: Record<Grupo, StatusCorrida[] | null> = {
   todas: null,
@@ -117,9 +131,29 @@ export default function Corridas() {
     window.history.replaceState(null, "", id ? `/corridas?id=${id}` : "/corridas");
   };
 
+  const [completando, setCompletando] = useState(false);
+  /** Calcula km e valor da tabela das corridas do período (filtros de data e fornecedor) que ainda não têm. */
+  const completar = async () => {
+    setCompletando(true);
+    const pular: string[] = [];
+    let km = 0, tabelas = 0;
+    try {
+      for (let rodada = 0; rodada < 80; rodada++) {
+        const r = await chamarApi<{ calculadas: number; tabelas: number; falharam: string[]; restantes: number }>("/api/corridas/km", {
+          de: deIso(de).toISOString(), ate: new Date(deIso(ate, true).getTime() + 60_000).toISOString(), fornecedorId: fornecedor || null, pular,
+        });
+        km += r.calculadas; tabelas += r.tabelas; pular.push(...r.falharam);
+        if (!r.restantes) break;
+      }
+      avisar(`Km calculado em ${km} corrida(s) e tabela em ${tabelas}.${pular.length ? ` ${pular.length} ficaram sem rota ou sem preço na tabela do fornecedor.` : ""}`);
+    } catch (e) {
+      avisar(e instanceof Error ? e.message : "Não foi possível calcular.", "erro");
+    } finally { setCompletando(false); await carregar(); }
+  };
+
   const exportar = async () => {
     setExportando(true);
-    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,observacoes,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
+    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,observacoes,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,distancia_fonte,fornecedor_valor_km,fornecedor_bandeirada,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
     setExportando(false);
     if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
     const linhas = (data ?? []) as any[];
@@ -129,12 +163,15 @@ export default function Corridas() {
       { titulo: "Motivo", largura: 20 }, { titulo: "Observações", largura: 30 }, { titulo: "Fornecedor", largura: 20 }, { titulo: "Status", largura: 18 },
       { titulo: "Motorista", largura: 18 }, { titulo: "Placa", largura: 10 }, { titulo: "Distância (km)", formato: "decimal", largura: 13 },
       { titulo: "Valor tabela", formato: "moeda", largura: 13 }, { titulo: "Item da tabela", largura: 34 },
+      { titulo: "Valor por km", formato: "moeda", largura: 13 }, { titulo: "Por km − tabela", formato: "moeda", largura: 15 }, { titulo: "Km estimado?", largura: 12 },
       { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
     ], linhas.map((c) => [
       c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
       c.origem, c.destino, c.qtd_passageiros, c.motivo, c.observacoes, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km),
-      c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao, c.valor_informado == null ? null : Number(c.valor_informado),
+      c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao,
+      porKmDaLinha(c), porKmDaLinha(c) != null && c.valor_tabela != null ? Math.round((porKmDaLinha(c)! - Number(c.valor_tabela)) * 100) / 100 : null,
+      c.distancia_fonte === "estimada" ? "Sim" : "", c.valor_informado == null ? null : Number(c.valor_informado),
       c.valor_faturado == null ? null : Number(c.valor_faturado),
     ]));
     avisar(`${linhas.length} corrida(s) exportada(s).`);
@@ -143,6 +180,7 @@ export default function Corridas() {
   return (
     <>
       <TopoPagina titulo="Corridas" subtitulo="Toda corrida nasce com protocolo. A lista atualiza sozinha quando algo muda.">
+        {planejamento && <button type="button" className="ghost" onClick={completar} disabled={completando || !total} title="Calcula a distância por ruas e o valor da tabela das corridas do período que ainda não têm">{completando ? "Calculando…" : "Calcular km e tabela"}</button>}
         <button type="button" className="ghost" onClick={exportar} disabled={exportando || !total}>{exportando ? "Exportando…" : "Exportar Excel"}</button>
       </TopoPagina>
       {err && <div className="err">{err}</div>}
@@ -168,7 +206,7 @@ export default function Corridas() {
 
         <div className="tw so-tela-larga">
           <table>
-            <thead><tr><th>Protocolo</th><th>Data/hora</th><th>Solicitante</th><th>Origem → destino</th><th>Fornecedor</th><th>Status</th><th className="num">Valor</th></tr></thead>
+            <thead><tr><th>Protocolo</th><th>Data/hora</th><th>Solicitante</th><th>Origem → destino</th><th>Fornecedor</th><th>Status</th><th className="num">Km</th><th className="num">Tabela</th><th className="num">Por km</th><th className="num">Informado</th></tr></thead>
             <tbody>
               {rows.map((c) => (
                 <tr key={c.id} className="linha-clicavel" tabIndex={0} onClick={() => abrir(c.id)} onKeyDown={(e) => e.key === "Enter" && abrir(c.id)}>
@@ -178,7 +216,10 @@ export default function Corridas() {
                   <td className="trajeto">{c.origem}<small>→ {c.destino}</small></td>
                   <td>{c.fornecedor_nome ?? <span className="texto-fraco">—</span>}</td>
                   <td><StatusTag status={c.status} />{["enviada", "sem_resposta"].includes(c.status) && <div><Prazo ate={c.prazo_resposta_em} compacto /></div>}</td>
-                  <td className="num">{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">tabela {brl(c.valor_tabela)}</small>}</td>
+                  <td className="num">{fmtKm(c.distancia_km) ?? <span className="texto-fraco">—</span>}{c.distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimado</small>}</td>
+                  <td className="num">{c.valor_tabela != null ? brl(c.valor_tabela) : <span className="texto-fraco">—</span>}</td>
+                  <td className="num">{(() => { const v = porKmDaLinha(c); return v != null ? <>{brl(v)}<DifKm porKm={v} tabela={c.valor_tabela} /></> : <span className="texto-fraco">—</span>; })()}</td>
+                  <td className="num">{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">acima da tabela</small>}</td>
                 </tr>
               ))}
             </tbody>
@@ -194,6 +235,13 @@ export default function Corridas() {
                 <span>{formatarDataHora(c.data_hora_prevista)} · {c.solicitante_nome}</span>
                 <b>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">tabela {brl(c.valor_tabela)}</small>}</b>
               </div>
+              {(c.distancia_km != null || c.valor_tabela != null) && (
+                <div className="cartao-corrida-comparativo">
+                  <span>{fmtKm(c.distancia_km) ?? "km —"}</span>
+                  <span>Tabela {c.valor_tabela != null ? brl(c.valor_tabela) : "—"}</span>
+                  <span>Por km {(() => { const v = porKmDaLinha(c); return v != null ? brl(v) : "—"; })()}</span>
+                </div>
+              )}
               {["enviada", "sem_resposta"].includes(c.status) && <Prazo ate={c.prazo_resposta_em} />}
             </button>
           ))}
@@ -248,6 +296,15 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
   useEffect(() => { setAcao(null); setErr(""); setOk(""); setLinks([]); void carregar(); }, [id]);
   useTempoReal(["corridas", "corrida_eventos", "mensagens"], () => void carregar());
 
+  const recalcularKm = async () => {
+    setOcupado(true); setErr(""); setOk("");
+    try {
+      const r = await chamarApi<{ calculadas: number; falharam: string[] }>("/api/corridas/km", { ids: [id] });
+      setOk(r.calculadas ? (r.falharam.length ? "Distância estimada (linha reta × 1,3): o mapa não achou a rota. Confira os endereços." : "Distância recalculada pela rota.") : "Não achei os endereços no mapa. Ajuste a origem ou o destino com um endereço mais completo.");
+      await carregar(); onMudou();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Não foi possível calcular."); }
+    finally { setOcupado(false); }
+  };
   const executar = async (nome: string, extra: Record<string, unknown> = {}) => {
     setOcupado(true); setErr(""); setOk("");
     try {
@@ -355,7 +412,15 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             {c.observacoes && <><dt>Observações</dt><dd className="observacoes-corrida">{c.observacoes}</dd></>}
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa ? formatarPlaca(c.veiculo_placa) : null, c.eta_minutos != null ? `chegada em ${c.eta_minutos} min após o aceite` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado (a corrida só é confirmada com motorista, placa e horário)</span>}</dd>
-            {c.distancia_km != null && <><dt>Distância (trajeto)</dt><dd>{Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</dd></>}
+            <dt>Distância (trajeto)</dt><dd>{c.distancia_km != null ? <>{fmtKm(c.distancia_km)}{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</> : <span className="texto-fraco">Ainda não calculada</span>}
+              {podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={recalcularKm}>{c.distancia_km != null ? "Recalcular km" : "Calcular km"}</button>}</dd>
+            <dt>Valor por km</dt><dd>{(() => {
+              const f = c.fornecedores;
+              if (!f) return <span className="texto-fraco">—</span>;
+              if (f.valor_km == null) return <span className="texto-fraco">{f.nome} sem valor por km em Cadastros › Fornecedores</span>;
+              const v = valorPorKm(c.distancia_km ?? null, { valor_km: f.valor_km, bandeirada: f.bandeirada ?? null });
+              return v != null ? <>{brl(v)}<small className="bloco texto-fraco">{f.bandeirada ? `${brl(f.bandeirada)} + ` : ""}{fmtKm(c.distancia_km)} × {brl(f.valor_km)}</small><DifKm porKm={v} tabela={c.valor_tabela} /></> : <span className="texto-fraco">Falta a distância</span>;
+            })()}</dd>
             <dt>Valor da tabela</dt><dd>{c.valor_tabela != null ? <>{brl(c.valor_tabela)}<small className="bloco texto-fraco">{c.preco_descricao}</small></> : <span className="texto-fraco">{!c.fornecedor_id ? "—" : c.preco_calculado_em ? "Este fornecedor não tem valor na tabela para o trecho" : "Ainda não calculado"}</span>}
               {c.fornecedor_id && podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={() => executar("recalcular_preco")}>Recalcular pela tabela de preços</button>}</dd>
             <dt>Valor informado</dt><dd>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">{brl(Number(c.valor_informado) - Number(c.valor_tabela))} acima da tabela</small>}{c.valor_tabela == null && (() => {

@@ -44,7 +44,7 @@ export default function ComparativoKm({ de, ate, fornecedorId, podeCalcular }: {
     let feitas = 0;
     try {
       for (let rodada = 0; rodada < 60; rodada++) {
-        const r = await chamarApi<{ calculadas: number; falharam: string[]; restantes: number }>("/api/corridas/km", { de, ate, fornecedorId: fornecedorId || null, pular });
+        const r = await chamarApi<{ calculadas: number; falharam: string[]; restantes: number }>("/api/corridas/km", { de, ate, fornecedorId: fornecedorId || null, concluidas: true, pular });
         feitas += r.calculadas; pular.push(...r.falharam);
         setCalc({ feitas, restantes: r.restantes, falhas: pular.length });
         if (!r.restantes) break;
