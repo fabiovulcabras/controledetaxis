@@ -95,6 +95,9 @@ export async function GET() {
     itens.push(!g.enderecos
       ? { ok: true, item: "Busca de endereços pelo Google Maps (Geocoding API)" }
       : { ok: false, item: "Google Maps: Geocoding API recusou", detalhe: `${g.enderecos} — ${dicaGoogle(g.enderecos, "Geocoding API")} Enquanto isso, usa o OpenStreetMap.` });
+    itens.push(!g.sugestoes
+      ? { ok: true, item: "Sugestões de endereço no pedido pelo Google Maps (Places API (New))" }
+      : { ok: false, item: "Google Maps: Places API (New) recusou", detalhe: `${g.sugestoes} — ${dicaGoogle(g.sugestoes, "Places API (New)")} Enquanto isso, as sugestões vêm do OpenStreetMap.` });
   } else if (process.env.ORS_API_KEY) {
     itens.push(teste?.fonte === "ors"
       ? { ok: true, item: `Distância por ruas pelo OpenRouteService (${km})` }

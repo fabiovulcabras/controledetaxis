@@ -19,7 +19,7 @@ type Dados = {
 };
 type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
 
-const vazio = { origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "", observacoes: "" };
+const vazio = { origem_google: false, destino_google: false, origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "", observacoes: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
 const novaChave = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
@@ -49,7 +49,7 @@ export default function Pedir() {
 
   const campo = (k: keyof typeof vazio) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     // Origem digitada à mão deixa de valer como ponto do mapa
-    setForm({ ...form, [k]: e.target.value, ...(k === "origem" ? { origem_lat: null, origem_lng: null } : {}) });
+    setForm({ ...form, [k]: e.target.value, ...(k === "origem" ? { origem_lat: null, origem_lng: null, origem_google: false } : {}) });
   const [localizando, setLocalizando] = useState(false);
   const [minhaPosicao, setMinhaPosicao] = useState<{ lat: number; lng: number } | null>(null);
   const minhaUnidade = dados?.locais?.find((l) => l.minha) ?? null;
@@ -67,7 +67,7 @@ export default function Pedir() {
         const j = r ? await r.json().catch(() => ({})) : {};
         setLocalizando(false);
         if (!r?.ok || !j.endereco) { setErr(j.erro ?? "Não foi possível descobrir o endereço. Digite a origem."); return; }
-        setForm((f) => ({ ...f, origem: j.endereco, origem_lat: lat, origem_lng: lng }));
+        setForm((f) => ({ ...f, origem: j.endereco, origem_lat: lat, origem_lng: lng, origem_google: false }));
       },
       () => { setLocalizando(false); setErr("Não foi possível pegar a localização. Permita o acesso à localização ou digite o endereço."); },
       { enableHighAccuracy: true, timeout: 15_000 },
@@ -83,7 +83,7 @@ export default function Pedir() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token, chave_envio: chaveEnvio, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
-        origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
+        origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, origem_google: form.origem_google, destino_google: form.destino_google, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
         motivo, observacoes: form.observacoes.trim(),
       }),
     });
@@ -148,21 +148,21 @@ export default function Pedir() {
             {form.tipo === "agendada" && <Campo rotulo="Data e hora" obrigatorio><input type="datetime-local" min={minimo} value={form.data_hora} onChange={campo("data_hora")} /></Campo>}
             <GrupoCampo rotulo="Origem" obrigatorio htmlFor="campo-origem">
               <CampoEndereco id="campo-origem" token={token} valor={form.origem} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
-                onMudar={(origem, lat, lng) => setForm((f) => ({ ...f, origem, origem_lat: lat, origem_lng: lng }))} />
-              <LocaisCadastrados locais={dados.locais} rotulo="Sair de um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, origem: l.texto, origem_lat: l.lat, origem_lng: l.lng }))} />
+                onMudar={(origem, lat, lng, google) => setForm((f) => ({ ...f, origem, origem_lat: lat, origem_lng: lng, origem_google: !!google }))} />
+              <LocaisCadastrados locais={dados.locais} rotulo="Sair de um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, origem: l.texto, origem_lat: l.lat, origem_lng: l.lng, origem_google: false }))} />
               <div className="atalhos">
-                {minhaUnidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: minhaUnidade.texto, origem_lat: minhaUnidade.lat, origem_lng: minhaUnidade.lng })}>Sair da {minhaUnidade.nome}</button>}
+                {minhaUnidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: minhaUnidade.texto, origem_lat: minhaUnidade.lat, origem_lng: minhaUnidade.lng, origem_google: false })}>Sair da {minhaUnidade.nome}</button>}
                 <button type="button" className="atalho" onClick={usarLocalizacao} disabled={localizando}>{localizando ? "Buscando endereço…" : "Usar minha localização"}</button>
               </div>
               {form.origem_lat != null && <span className="campo-ajuda">Confira o número; se precisar, corrija.</span>}
-              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.origem} onEscolher={(f) => setForm({ ...form, origem: f.endereco, origem_lat: f.lat, origem_lng: f.lng })} />
+              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.origem} onEscolher={(f) => setForm({ ...form, origem: f.endereco, origem_lat: f.lat, origem_lng: f.lng, origem_google: false })} />
             </GrupoCampo>
             <GrupoCampo rotulo="Destino" obrigatorio htmlFor="campo-destino">
               <CampoEndereco id="campo-destino" token={token} valor={form.destino} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
-                onMudar={(destino, lat, lng) => setForm((f) => ({ ...f, destino, destino_lat: lat, destino_lng: lng }))} />
-              <LocaisCadastrados locais={dados.locais} rotulo="Ir para um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, destino: l.texto, destino_lat: l.lat, destino_lng: l.lng }))} />
-              {minhaUnidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: minhaUnidade.texto, destino_lat: minhaUnidade.lat, destino_lng: minhaUnidade.lng })}>Ir para a {minhaUnidade.nome}</button></div>}
-              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng })} />
+                onMudar={(destino, lat, lng, google) => setForm((f) => ({ ...f, destino, destino_lat: lat, destino_lng: lng, destino_google: !!google }))} />
+              <LocaisCadastrados locais={dados.locais} rotulo="Ir para um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, destino: l.texto, destino_lat: l.lat, destino_lng: l.lng, destino_google: false }))} />
+              {minhaUnidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: minhaUnidade.texto, destino_lat: minhaUnidade.lat, destino_lng: minhaUnidade.lng, destino_google: false })}>Ir para a {minhaUnidade.nome}</button></div>}
+              <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng, destino_google: false })} />
             </GrupoCampo>
             <Campo rotulo="Passageiros" obrigatorio>
               <select value={form.qtd_passageiros} onChange={campo("qtd_passageiros")}>

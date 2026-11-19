@@ -127,15 +127,22 @@ export async function POST(req: Request) {
     if ((count ?? 0) >= limiteHora) return erroJson(`Limite de ${limiteHora} pedidos por hora atingido. Se precisar de mais, fale com o planejamento.`, 429);
 
     const pontos = { origem_lat: num(corpo.origem_lat), origem_lng: num(corpo.origem_lng), destino_lat: num(corpo.destino_lat), destino_lng: num(corpo.destino_lng) };
+    // Pontos vindos do Google Places servem para a distância e a tabela, mas não ficam gravados (termos do Google Maps)
+    const doGoogle = {
+      ...(corpo.origem_google ? { origem_lat: pontos.origem_lat, origem_lng: pontos.origem_lng } : {}),
+      ...(corpo.destino_google ? { destino_lat: pontos.destino_lat, destino_lng: pontos.destino_lng } : {}),
+    };
+    const gravar = { ...pontos, ...Object.fromEntries(Object.keys(doGoogle).map((k) => [k, null])) };
 
     const corrida = await repo.criarCorrida({
       solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim().slice(0, 200) || null : null, motivo,
       ...(observacoes ? { observacoes } : {}),
-      ...pontos,  ...(chave ? { chave_envio: chave } : {}),
+      ...gravar,  ...(chave ? { chave_envio: chave } : {}),
     });
+    Object.assign(corrida, doGoogle);
 
-    // Distância por ruas (OpenRouteService), gravada antes do envio
+    // Distância por ruas (Google Routes ou OpenRouteService), gravada antes do envio
     await repo.garantirDistancia?.(corrida).catch(() => null);
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);

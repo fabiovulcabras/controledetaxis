@@ -36,10 +36,10 @@ async function rotaGoogle(a: Ponto, b: Ponto): Promise<number | null> {
  * Diagnóstico da chave do Google (para /api/saude): chama a Routes API e a Geocoding API e devolve
  * o erro exato que o Google respondeu em cada uma.
  */
-export async function diagnosticoGoogle(): Promise<{ rotas: string | null; enderecos: string | null }> {
+export async function diagnosticoGoogle(): Promise<{ rotas: string | null; enderecos: string | null; sugestoes: string | null }> {
   const chave = process.env.GOOGLE_MAPS_API_KEY?.trim();
-  if (!chave) return { rotas: "GOOGLE_MAPS_API_KEY vazia", enderecos: "GOOGLE_MAPS_API_KEY vazia" };
-  let rotas: string | null = null, enderecos: string | null = null;
+  if (!chave) return { rotas: "GOOGLE_MAPS_API_KEY vazia", enderecos: "GOOGLE_MAPS_API_KEY vazia", sugestoes: "GOOGLE_MAPS_API_KEY vazia" };
+  let rotas: string | null = null, enderecos: string | null = null, sugestoes: string | null = null;
   try {
     const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
       method: "POST", cache: "no-store", signal: AbortSignal.timeout(6000),
@@ -53,7 +53,15 @@ export async function diagnosticoGoogle(): Promise<{ rotas: string | null; ender
     const j = await r.json().catch(() => null);
     if (j?.status !== "OK") enderecos = `${j?.status ?? r.status}: ${j?.error_message ?? "sem detalhe"}`.slice(0, 400);
   } catch (e) { enderecos = `sem conexão: ${e instanceof Error ? e.message : e}`; }
-  return { rotas, enderecos };
+  try {
+    const r = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST", cache: "no-store", signal: AbortSignal.timeout(6000),
+      headers: { "X-Goog-Api-Key": chave, "Content-Type": "application/json" },
+      body: JSON.stringify({ input: "Pronto Socorro Extrema", includedRegionCodes: ["br"] }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => null); sugestoes = `${r.status} ${j?.error?.status ?? ""}: ${j?.error?.message ?? "sem detalhe"}`.slice(0, 400); }
+  } catch (e) { sugestoes = `sem conexão: ${e instanceof Error ? e.message : e}`; }
+  return { rotas, enderecos, sugestoes };
 }
 
 /** Rota de carro pelo OpenRouteService (chave ORS_API_KEY; plano gratuito). Null se não houver chave ou não responder. */
