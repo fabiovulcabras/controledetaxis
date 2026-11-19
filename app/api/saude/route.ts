@@ -1,4 +1,17 @@
-import { rotaEntre } from "@/lib/distancia";
+import { diagnosticoGoogle, rotaEntre } from "@/lib/distancia";
+
+/** Traduz o erro do Google numa instrução do que fazer no Google Cloud Console. */
+function dicaGoogle(erro: string, api: string): string {
+  const e = erro.toLowerCase();
+  if (/has not been used|is disabled|service_disabled|not activated/.test(e)) return `Ative a ${api} em APIs e serviços › Biblioteca (no mesmo projeto da chave) e espere uns minutos.`;
+  if (/billing/.test(e)) return "Ligue o faturamento do projeto em Faturamento › Vincular conta de faturamento.";
+  if (/referer|referrer/.test(e)) return "A chave está restrita a sites. Em Credenciais › sua chave › Restrições do aplicativo, escolha Nenhuma (ou Endereços IP).";
+  if (/not authorized|api_key_service_blocked|blocked/.test(e)) return `A chave não tem permissão para a ${api}. Em Credenciais › sua chave › Restrições de API, marque a ${api}.`;
+  if (/ip address|ip_address/.test(e)) return "A chave está restrita por IP. A Vercel não tem IP fixo: em Restrições do aplicativo, escolha Nenhuma.";
+  if (/api key not valid|invalid|api_key_invalid/.test(e)) return "A chave está errada: confira GOOGLE_MAPS_API_KEY na Vercel (sem espaços nem aspas) e faça redeploy.";
+  if (/sem conexão/.test(e)) return "O servidor não alcançou o Google; tente de novo em instantes.";
+  return "Confira a chave e as APIs no Google Cloud Console.";
+}
 import { chavesConferem, chavesVapid } from "@/lib/webpush";
 import { createClient } from "@supabase/supabase-js";
 import { modoEnvio } from "@/lib/whatsapp/transporte";
@@ -74,9 +87,14 @@ export async function GET() {
     ? await rotaEntre({ lat: -22.8546, lng: -46.3178 }, { lat: -22.8743, lng: -46.3233 }).catch(() => null) : null;
   const km = teste ? `teste: ${teste.km.toLocaleString("pt-BR")} km` : "";
   if (process.env.GOOGLE_MAPS_API_KEY) {
-    itens.push(teste?.fonte === "google"
-      ? { ok: true, item: `Distância por ruas pelo Google Maps (${km})` }
-      : { ok: false, item: "Google Maps não respondeu", detalhe: `Confira GOOGLE_MAPS_API_KEY na Vercel e, no Google Cloud, se a "Routes API" e a "Geocoding API" estão ativadas, se há faturamento ligado e se a chave não está restrita a sites (HTTP referrer). Enquanto isso, usa ${teste?.fonte === "ors" ? "o OpenRouteService" : "o OSRM público ou a estimativa"}.` });
+    // Testa as duas APIs do Google e mostra o erro exato de cada uma
+    const g = await diagnosticoGoogle();
+    itens.push(!g.rotas
+      ? { ok: true, item: `Distância por ruas pelo Google Maps (Routes API${teste?.fonte === "google" ? `, ${km}` : ""})` }
+      : { ok: false, item: "Google Maps: Routes API recusou", detalhe: `${g.rotas} — ${dicaGoogle(g.rotas, "Routes API")} Enquanto isso, usa ${teste?.fonte === "ors" ? "o OpenRouteService" : "o OSRM público ou a estimativa"}.` });
+    itens.push(!g.enderecos
+      ? { ok: true, item: "Busca de endereços pelo Google Maps (Geocoding API)" }
+      : { ok: false, item: "Google Maps: Geocoding API recusou", detalhe: `${g.enderecos} — ${dicaGoogle(g.enderecos, "Geocoding API")} Enquanto isso, usa o OpenStreetMap.` });
   } else if (process.env.ORS_API_KEY) {
     itens.push(teste?.fonte === "ors"
       ? { ok: true, item: `Distância por ruas pelo OpenRouteService (${km})` }

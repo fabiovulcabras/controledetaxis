@@ -32,6 +32,30 @@ async function rotaGoogle(a: Ponto, b: Ponto): Promise<number | null> {
   } catch { return null; }
 }
 
+/**
+ * Diagnóstico da chave do Google (para /api/saude): chama a Routes API e a Geocoding API e devolve
+ * o erro exato que o Google respondeu em cada uma.
+ */
+export async function diagnosticoGoogle(): Promise<{ rotas: string | null; enderecos: string | null }> {
+  const chave = process.env.GOOGLE_MAPS_API_KEY?.trim();
+  if (!chave) return { rotas: "GOOGLE_MAPS_API_KEY vazia", enderecos: "GOOGLE_MAPS_API_KEY vazia" };
+  let rotas: string | null = null, enderecos: string | null = null;
+  try {
+    const r = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST", cache: "no-store", signal: AbortSignal.timeout(6000),
+      headers: { "X-Goog-Api-Key": chave, "X-Goog-FieldMask": "routes.distanceMeters", "Content-Type": "application/json" },
+      body: JSON.stringify({ origin: { location: { latLng: { latitude: -22.8546, longitude: -46.3178 } } }, destination: { location: { latLng: { latitude: -22.8743, longitude: -46.3233 } } }, travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE" }),
+    });
+    if (!r.ok) { const j = await r.json().catch(() => null); rotas = `${r.status} ${j?.error?.status ?? ""}: ${j?.error?.message ?? "sem detalhe"}`.slice(0, 400); }
+  } catch (e) { rotas = `sem conexão: ${e instanceof Error ? e.message : e}`; }
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent("Extrema, MG")}&key=${chave}`, { cache: "no-store", signal: AbortSignal.timeout(6000) });
+    const j = await r.json().catch(() => null);
+    if (j?.status !== "OK") enderecos = `${j?.status ?? r.status}: ${j?.error_message ?? "sem detalhe"}`.slice(0, 400);
+  } catch (e) { enderecos = `sem conexão: ${e instanceof Error ? e.message : e}`; }
+  return { rotas, enderecos };
+}
+
 /** Rota de carro pelo OpenRouteService (chave ORS_API_KEY; plano gratuito). Null se não houver chave ou não responder. */
 async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
   const chave = process.env.ORS_API_KEY?.trim();
