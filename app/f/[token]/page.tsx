@@ -155,6 +155,7 @@ export default function RespostaFornecedor() {
         </form>
       )}
 
+      {emCurso && !tela && c.autorizado && <RoteiroCorrida token={token} />}
       {emCurso && !tela && (
         <div style={{ display: "grid", gap: 8 }}>
           {c.status === "aceita" && <button type="button" className="pri botao-grande" disabled={ocupado} onClick={() => agir("embarque", {}, "Embarque registrado.")}>Passageiro embarcou</button>}
@@ -257,6 +258,27 @@ function ExtrasDaCorrida({ token, extras, permitido, onMudou }: { token: string;
           <button type="button" className="ghost" onClick={() => { setAberto(false); setErr(""); }}>Cancelar</button>
         </form>
       )}
+    </section>
+  );
+}
+
+/** Roteiro do menor trajeto: km e botão que abre o Google Maps já no caminho de menor distância. */
+function RoteiroCorrida({ token }: { token: string }) {
+  const [r, setR] = useState<{ km: number; link: string; passagens: number } | null>(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    fetch(`/api/fornecedor/roteiro?token=${token}`, { cache: "no-store" }).then(async (resp) => {
+      const j = await resp.json().catch(() => ({}));
+      if (resp.ok) setR(j); else setErro(j.erro ?? "Roteiro indisponível.");
+    }).catch(() => setErro("Roteiro indisponível."));
+  }, [token]);
+  if (erro) return <p className="texto-fraco" style={{ fontSize: 13 }}>{erro}</p>;
+  if (!r) return <p className="texto-fraco" style={{ fontSize: 13 }}>Calculando o roteiro…</p>;
+  return (
+    <section className="card" style={{ display: "grid", gap: 8 }}>
+      <div><strong>Roteiro: {r.km.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km</strong>
+        <small className="bloco texto-fraco">Caminho de menor distância (pode levar mais tempo que a rota mais rápida). A conferência usa esse km.{r.passagens ? " Os pontos intermediários só mantêm o caminho; não são paradas." : ""}</small></div>
+      <a className="botao-link botao-grande" href={r.link} target="_blank" rel="noopener noreferrer">Abrir roteiro no Google Maps</a>
     </section>
   );
 }

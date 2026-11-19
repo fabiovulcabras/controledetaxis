@@ -1,5 +1,6 @@
 import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
-import { menorKm } from "../lib/distancia";
+import { decodificarPolyline, linkRoteiro, menorKm, pontosDePassagem } from "../lib/distancia";
+import { textoRoteiro } from "../lib/roteiro";
 import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemFornecedor, entradasDoAparelho } from "../lib/acesso-fornecedor";
 import { textoPortal } from "../lib/portal-texto";
 import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
@@ -213,8 +214,12 @@ describe("respostas do fornecedor", () => {
     expect((await c.enviar({ telefone: RTC, texto: "08h00" }))[0].texto).toContain("já passou");
     expect(c.repo.corridas[0].status).toBe("enviada");
 
-    // agora 09h37: chegada 09h48 = 11 min
+    // agora 09h37: chegada 09h48 = 11 min. Com roteiro disponível, ele vai ao fornecedor antes das opções
+    (c.repo as any).roteiro = async () => "🗺️ Roteiro da corrida TX-2026-00001";
     const s2 = await c.enviar({ telefone: RTC, texto: "09h48" });
+    const paraRtc = s2.filter((x) => x.para === RTC);
+    expect(paraRtc[0].texto).toContain("Roteiro da corrida");
+    expect(paraRtc[0].opcoes).toBe(undefined);
     expect(c.repo.corridas[0].status).toBe("aceita");
     expect(c.repo.corridas[0].motorista).toBe("Carlos Souza");
     expect(c.repo.corridas[0].veiculo_placa).toBe("RTX4F21");
@@ -1169,5 +1174,33 @@ describe("menor trajeto", () => {
     expect(menorKm([12345, 9876, 15000])).toBe(9.88);
     expect(menorKm([undefined, null, 5000])).toBe(5);
     expect(menorKm([])).toBe(null);
+  });
+});
+
+describe("roteiro do menor trajeto", () => {
+  it("decodifica a polyline do Google", () => {
+    const p = decodificarPolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+    expect(p.length).toBe(3);
+    expect(p[0]).toEqual({ lat: 38.5, lng: -120.2 });
+    expect(p[2]).toEqual({ lat: 43.252, lng: -126.453 });
+  });
+  it("pontos de passagem a 1/3 e 2/3 do caminho; trajeto curto não precisa", () => {
+    const reta = Array.from({ length: 31 }, (_, i) => ({ lat: -22.85 - i * 0.003, lng: -46.31 }));
+    const pp = pontosDePassagem(reta);
+    expect(pp.length).toBe(2);
+    expect(pp[0].lat).toBeGreaterThan(pp[1].lat);
+    expect(pontosDePassagem(reta.slice(0, 3)).length).toBe(0);
+  });
+  it("link do Google Maps com origem, destino e pontos de passagem", () => {
+    const l = linkRoteiro({ lat: -22.85, lng: -46.31 }, { lat: -22.95, lng: -46.54 }, [{ lat: -22.9, lng: -46.4 }]);
+    expect(l).toMatch(/^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&origin=-22\.85000,-46\.31000&destination=-22\.95000,-46\.54000&waypoints=/);
+    expect(l).toContain("travelmode=driving");
+    expect(linkRoteiro({ lat: 1, lng: 2 }, { lat: 3, lng: 4 })).not.toContain("waypoints");
+  });
+  it("mensagem ao fornecedor", () => {
+    const t = textoRoteiro({ protocolo: "TX-1", origem: "CD Extrema", destino: "Centro" }, 12.34, "https://x", 2);
+    expect(t).toContain("12,3 km");
+    expect(t).toContain("MENOR distância");
+    expect(t).toContain("não são paradas");
   });
 });

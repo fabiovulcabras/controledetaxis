@@ -409,7 +409,10 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     await repo.salvarConversa(tel, "aguardando", { corrida_id: c.id }, agora);
     const detalhes = `${motorista}, placa ${formatarPlaca(placa)}, ${textoChegada(chegada, agora)}`;
     const alertas = atrasado ? await alertar(repo, atual, "aceita pelo fornecedor depois do prazo") : [];
+    // Roteiro do menor trajeto (km e link do Google Maps), antes das opções para não sobrepor os números
+    const roteiro = c.status === "aceita" ? null : await repo.roteiro?.(atual).catch(() => null);
     return [
+      ...(roteiro ? [responder(roteiro, undefined, c.id)] : []),
       responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.${await textoTabela(repo, atual)}`,
         [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
       ...await avisarSolicitante(repo, atual, `Sua corrida ${c.protocolo} foi aceita por ${forn.nome}. Motorista: ${detalhes}.`, `aceita por ${forn.nome}. Motorista: ${detalhes}`),

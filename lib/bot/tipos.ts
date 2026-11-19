@@ -95,6 +95,8 @@ export interface Repo {
   motivos(): Promise<string[]>;
   /** Calcula e grava a distância por ruas da corrida, se ainda não tiver (opcional: os testes não usam). */
   garantirDistancia?(c: Corrida): Promise<void>;
+  /** Texto do roteiro (menor trajeto e link do Google Maps) para o fornecedor; opcional. */
+  roteiro?(c: Corrida): Promise<string | null>;
 
   conversa(telefone: string): Promise<Conversa | null>;
   salvarConversa(telefone: string, etapa: string, dados: Record<string, any>, agora: Date): Promise<void>;

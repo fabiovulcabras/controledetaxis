@@ -113,6 +113,9 @@ export async function POST(req: Request) {
         saidas.push(...await avisarSolicitante(repo, atual, msgAceitaSolicitante(atual, nomeForn, base), `aceita por ${nomeForn}`));
       }
       if (atrasado) saidas.push(...await alertar(repo, atual, "aceita pelo fornecedor depois do prazo"));
+      // Roteiro do menor trajeto também pelo WhatsApp do fornecedor
+      const roteiro = forn ? await repo.roteiro(atual).catch(() => null) : null;
+      if (roteiro && forn) saidas.push({ para: forn.telefone_whatsapp, texto: roteiro, corridaId: c.id });
     } else if (acao === "recusar") {
       if (!["enviada", "sem_resposta"].includes(c.status)) return situacao();
       const motivo = String(corpo.motivo ?? "").trim() || "Recusada pelo fornecedor";

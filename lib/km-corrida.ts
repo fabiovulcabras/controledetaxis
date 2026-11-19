@@ -67,12 +67,10 @@ async function lugaresCadastrados(db: SupabaseClient): Promise<Lugar[]> {
 }
 
 /**
- * Calcula e grava a distância da corrida (origem → destino, por ruas). Usa as coordenadas guardadas; sem elas,
- * um local cadastrado com o mesmo texto; por último, busca o endereço escrito no mapa (e guarda as coordenadas achadas).
- * Sem `forcar`, não refaz quem já tem distância por rota.
+ * Pontos de origem e destino da corrida: as coordenadas guardadas; sem elas, um local cadastrado com o mesmo texto;
+ * por último, o endereço escrito buscado no mapa. `novo`: o ponto pode ser gravado na corrida (não veio do Google).
  */
-export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = false, cacheLugares?: Lugar[]): Promise<{ km: number; fonte: FonteDistancia } | null> {
-  if (!forcar && c.distancia_km != null && c.distancia_fonte && c.distancia_fonte !== "estimada") return { km: Number(c.distancia_km), fonte: c.distancia_fonte as FonteDistancia };
+export async function pontosDaCorrida(db: SupabaseClient, c: Corr, cacheLugares?: Lugar[]): Promise<{ o: { p: Ponto; novo: boolean }; d: { p: Ponto; novo: boolean } } | null> {
   const lugares = cacheLugares ?? await lugaresCadastrados(db);
   const ponto = async (lat: unknown, lng: unknown, texto: string) => {
     if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) return { p: { lat: Number(lat), lng: Number(lng) }, novo: false };
@@ -84,7 +82,19 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
   };
   const o = await ponto(c.origem_lat, c.origem_lng, c.origem);
   const d = o ? await ponto(c.destino_lat, c.destino_lng, c.destino) : null;
-  if (!o || !d) return null;
+  return o && d ? { o, d } : null;
+}
+
+/**
+ * Calcula e grava a distância da corrida (origem → destino, por ruas). Usa as coordenadas guardadas; sem elas,
+ * um local cadastrado com o mesmo texto; por último, busca o endereço escrito no mapa (e guarda as coordenadas achadas).
+ * Sem `forcar`, não refaz quem já tem distância por rota.
+ */
+export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = false, cacheLugares?: Lugar[]): Promise<{ km: number; fonte: FonteDistancia } | null> {
+  if (!forcar && c.distancia_km != null && c.distancia_fonte && c.distancia_fonte !== "estimada") return { km: Number(c.distancia_km), fonte: c.distancia_fonte as FonteDistancia };
+  const pts = await pontosDaCorrida(db, c, cacheLugares);
+  if (!pts) return null;
+  const { o, d } = pts;
   const rota = await rotaEntre(o.p, d.p);
   const campos: Record<string, unknown> = { distancia_km: rota.km, distancia_fonte: rota.fonte, distancia_calculada_em: new Date().toISOString() };
   if (o.novo) Object.assign(campos, { origem_lat: o.p.lat, origem_lng: o.p.lng });

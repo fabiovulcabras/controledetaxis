@@ -12,6 +12,19 @@ export function distanciaReta(a: Ponto, b: Ponto): number {
 
 const km = (metros: number) => Math.round(metros / 10) / 100;
 
+/** Distância (km) e caminho (pontos da linha da rota, quando o serviço devolve). */
+export type Rota = { km: number; caminho: Ponto[] };
+
+/** Entre as rotas devolvidas, a de menor distância, com o caminho decodificado. */
+function menorRota(rotas: { metros: unknown; polyline?: string }[]): Rota | null {
+  const validas = rotas.filter((r) => r.metros != null && Number.isFinite(Number(r.metros)) && Number(r.metros) >= 0);
+  if (!validas.length) return null;
+  const melhor = validas.reduce((m, r) => (Number(r.metros) < Number(m.metros) ? r : m));
+  let caminho: Ponto[] = [];
+  try { caminho = melhor.polyline ? decodificarPolyline(melhor.polyline) : []; } catch { caminho = []; }
+  return { km: km(Number(melhor.metros)), caminho };
+}
+
 /** Entre as rotas devolvidas, a de menor distância (km). Null se nenhuma tiver distância válida. */
 export function menorKm(metros: unknown[]): number | null {
   const validos = metros.filter((m) => m != null && m !== "").map(Number).filter((m) => Number.isFinite(m) && m >= 0);
@@ -22,19 +35,19 @@ export function menorKm(metros: unknown[]): number | null {
  * Rota de carro pelo Google Routes API (chave GOOGLE_MAPS_API_KEY, com a "Routes API" ativada no Google Cloud).
  * Sem trânsito (TRAFFIC_UNAWARE): é o nível mais barato e a distância não muda com o horário.
  */
-async function rotaGoogle(a: Ponto, b: Ponto): Promise<number | null> {
+async function rotaGoogle(a: Ponto, b: Ponto): Promise<Rota | null> {
   const chave = process.env.GOOGLE_MAPS_API_KEY?.trim();
   if (!chave) return null;
   const ponto = (p: Ponto) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
   try {
     const resp = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
       method: "POST", cache: "no-store", signal: AbortSignal.timeout(5000),
-      headers: { "X-Goog-Api-Key": chave, "X-Goog-FieldMask": "routes.distanceMeters", "Content-Type": "application/json" },
+      headers: { "X-Goog-Api-Key": chave, "X-Goog-FieldMask": "routes.distanceMeters,routes.polyline.encodedPolyline", "Content-Type": "application/json" },
       // Pede também as rotas alternativas e fica com a de menor km (mesmo que demore mais)
       body: JSON.stringify({ origin: ponto(a), destination: ponto(b), travelMode: "DRIVE", routingPreference: "TRAFFIC_UNAWARE", computeAlternativeRoutes: true, languageCode: "pt-BR", units: "METRIC" }),
     });
     if (!resp.ok) { console.error("Google Routes respondeu", resp.status, (await resp.text()).slice(0, 300)); return null; }
-    return menorKm(((await resp.json())?.routes ?? []).map((r: any) => r?.distanceMeters));
+    return menorRota(((await resp.json())?.routes ?? []).map((r: any) => ({ metros: r?.distanceMeters, polyline: r?.polyline?.encodedPolyline })));
   } catch { return null; }
 }
 
@@ -71,7 +84,7 @@ export async function diagnosticoGoogle(): Promise<{ rotas: string | null; ender
 }
 
 /** Rota de carro pelo OpenRouteService (chave ORS_API_KEY; plano gratuito). Null se não houver chave ou não responder. */
-async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
+async function rotaOrs(a: Ponto, b: Ponto): Promise<Rota | null> {
   const chave = process.env.ORS_API_KEY?.trim();
   if (!chave) return null;
   try {
@@ -82,37 +95,85 @@ async function rotaOrs(a: Ponto, b: Ponto): Promise<number | null> {
       body: JSON.stringify({ coordinates: [[a.lng, a.lat], [b.lng, b.lat]], preference: "shortest", instructions: false }),
     });
     if (!resp.ok) { console.error("OpenRouteService respondeu", resp.status, (await resp.text()).slice(0, 200)); return null; }
-    const metros = (await resp.json())?.routes?.[0]?.summary?.distance;
-    return Number.isFinite(metros) ? km(metros) : null;
+    const r0 = (await resp.json())?.routes?.[0];
+    return menorRota([{ metros: r0?.summary?.distance, polyline: typeof r0?.geometry === "string" ? r0.geometry : undefined }]);
   } catch { return null; }
 }
 
 /** Rota pelo servidor público do OSRM (sem garantia; só reserva). */
-async function rotaOsrm(a: Ponto, b: Ponto): Promise<number | null> {
+async function rotaOsrm(a: Ponto, b: Ponto): Promise<Rota | null> {
   try {
-    const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=false&alternatives=3`, {
+    const resp = await fetch(`https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=polyline&alternatives=3`, {
       signal: AbortSignal.timeout(3000), headers: { "User-Agent": "ControleDeTaxis/1.0" }, cache: "no-store",
     });
-    return resp.ok ? menorKm(((await resp.json())?.routes ?? []).map((r: any) => r?.distance)) : null;
+    return resp.ok ? menorRota(((await resp.json())?.routes ?? []).map((r: any) => ({ metros: r?.distance, polyline: r?.geometry }))) : null;
   } catch { return null; }
 }
 
 /**
- * Distância do trajeto por ruas (km), sempre pelo trajeto de MENOR distância (não o mais rápido): Google Routes; sem chave ou com falha, OpenRouteService; depois, OSRM público;
- * por último, a linha reta × 1,3 (aproximação comum para trajetos urbanos).
+ * Rota por ruas, sempre a de MENOR distância (não a mais rápida): Google Routes; sem chave ou com falha,
+ * OpenRouteService; depois, OSRM público; por último, a linha reta × 1,3 (sem caminho).
  */
-export async function rotaEntre(a: Ponto, b: Ponto): Promise<{ km: number; fonte: FonteDistancia }> {
-  if (distanciaReta(a, b) < 0.05) return { km: 0, fonte: "estimada" };
+export async function rotaCompleta(a: Ponto, b: Ponto): Promise<Rota & { fonte: FonteDistancia }> {
+  if (distanciaReta(a, b) < 0.05) return { km: 0, caminho: [], fonte: "estimada" };
   const google = await rotaGoogle(a, b);
-  if (google != null) return { km: google, fonte: "google" };
+  if (google) return { ...google, fonte: "google" };
   const ors = await rotaOrs(a, b);
-  if (ors != null) return { km: ors, fonte: "ors" };
+  if (ors) return { ...ors, fonte: "ors" };
   const osrm = await rotaOsrm(a, b);
-  if (osrm != null) return { km: osrm, fonte: "osrm" };
-  return { km: Math.round(distanciaReta(a, b) * 1.3 * 100) / 100, fonte: "estimada" };
+  if (osrm) return { ...osrm, fonte: "osrm" };
+  return { km: Math.round(distanciaReta(a, b) * 1.3 * 100) / 100, caminho: [], fonte: "estimada" };
+}
+
+/** Só a distância do menor trajeto (km) e de onde veio. */
+export async function rotaEntre(a: Ponto, b: Ponto): Promise<{ km: number; fonte: FonteDistancia }> {
+  const r = await rotaCompleta(a, b);
+  return { km: r.km, fonte: r.fonte };
 }
 
 /** Só os km (compatibilidade com quem já usava). */
 export async function distanciaTrajeto(a: Ponto, b: Ponto): Promise<number> {
   return (await rotaEntre(a, b)).km;
+}
+
+/** Decodifica uma polyline codificada (formato do Google, precisão 5) em pontos. */
+export function decodificarPolyline(codigo: string): Ponto[] {
+  const pontos: Ponto[] = [];
+  let i = 0, lat = 0, lng = 0;
+  while (i < codigo.length) {
+    for (const eixo of [0, 1]) {
+      let res = 0, desloc = 0, b: number;
+      do { b = codigo.charCodeAt(i++) - 63; res |= (b & 0x1f) << desloc; desloc += 5; } while (b >= 0x20);
+      const d = res & 1 ? ~(res >> 1) : res >> 1;
+      if (eixo === 0) lat += d; else lng += d;
+    }
+    pontos.push({ lat: lat / 1e5, lng: lng / 1e5 });
+  }
+  return pontos;
+}
+
+/**
+ * Pontos de passagem para "prender" o caminho no Google Maps: os pontos a 1/3 e 2/3 da distância do trajeto.
+ * Trajetos curtos (menos de 2 km) ou sem caminho não precisam.
+ */
+export function pontosDePassagem(caminho: Ponto[], quantos = 2): Ponto[] {
+  if (caminho.length < 3) return [];
+  const acum = [0];
+  for (let i = 1; i < caminho.length; i++) acum.push(acum[i - 1] + distanciaReta(caminho[i - 1], caminho[i]));
+  const total = acum[acum.length - 1];
+  if (total < 2) return [];
+  const saida: Ponto[] = [];
+  for (let k = 1; k <= quantos; k++) {
+    const alvo = (total * k) / (quantos + 1);
+    const i = acum.findIndex((d) => d >= alvo);
+    if (i > 0) saida.push(caminho[i]);
+  }
+  return saida;
+}
+
+/** Link do Google Maps com o trajeto de carro, passando pelos pontos que mantêm o menor caminho. */
+export function linkRoteiro(a: Ponto, b: Ponto, passagem: Ponto[] = []): string {
+  const f = (p: Ponto) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`;
+  const via = passagem.length ? `&waypoints=${encodeURIComponent(passagem.map(f).join("|"))}` : "";
+  return `https://www.google.com/maps/dir/?api=1&origin=${f(a)}&destination=${f(b)}${via}&travelmode=driving`;
 }
