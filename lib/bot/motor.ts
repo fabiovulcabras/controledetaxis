@@ -386,11 +386,6 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
 }
 
 // ---------------------------------------------------------------- Fornecedor
-/** " Valor da tabela: R$ 164,00 (Toledo - Pereiras · Passeio)." ou vazio quando não há tabela para a corrida. */
-async function textoTabela(repo: Repo, c: Corrida): Promise<string> {
-  const t = await repo.precoTabela(c).catch(() => null);
-  return t ? ` Valor da tabela: ${brl(t.valor)} (${t.descricao}).` : "";
-}
 
 const ACOES_FORNECEDOR = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):(.+)$/;
 
@@ -413,7 +408,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     const roteiro = c.status === "aceita" ? null : await repo.roteiro?.(atual).catch(() => null);
     return [
       ...(roteiro ? [responder(roteiro, undefined, c.id)] : []),
-      responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.${await textoTabela(repo, atual)}`,
+      responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.`,
         [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
       ...await avisarSolicitante(repo, atual, `Sua corrida ${c.protocolo} foi aceita por ${forn.nome}. Motorista: ${detalhes}.`, `aceita por ${forn.nome}. Motorista: ${detalhes}`),
       ...alertas,
@@ -456,7 +451,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
       if (c.status !== "aceita") return [responder(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}".`)];
       await repo.mudarStatus(c.id, "em_andamento", "fornecedor", "Passageiro embarcou");
       await repo.salvarConversa(tel, "valor", { corrida_id: c.id }, agora);
-      return [responder(`Embarque da corrida ${c.protocolo} registrado. Ao terminar, envie o valor da corrida (exemplo: 68,50).${await textoTabela(repo, c)}`, undefined, c.id)];
+      return [responder(`Embarque da corrida ${c.protocolo} registrado. Ao terminar, envie o valor da corrida (exemplo: 68,50).`, undefined, c.id)];
     }
 
     if (acao === "NAO_REALIZADA") {

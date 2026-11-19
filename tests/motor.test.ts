@@ -802,7 +802,7 @@ describe("tabela de preços", () => {
     await pedirTaxiCompleto(c);
     await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
     const dados = await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 10h00" });
-    expect(ultima(dados, RTC).texto).toMatch(/Valor da tabela: R\$\s410,00/);
+    expect(ultima(dados, RTC).texto).not.toContain("Valor da tabela");
     const s = await c.enviar({ telefone: RTC, texto: "450,00" });
     expect(ultima(s, RTC).texto).toContain("acima da tabela");
     expect(para(s, PLAN).some((x) => /acima da tabela: R\$\s410,00/.test(x.texto))).toBe(true);
@@ -1199,8 +1199,8 @@ describe("roteiro do menor trajeto", () => {
   });
   it("mensagem ao fornecedor", () => {
     const t = textoRoteiro({ protocolo: "TX-1", origem: "CD Extrema", destino: "Centro" }, 12.34, "https://x", 2);
-    expect(t).toContain("12,3 km");
-    expect(t).toContain("MENOR distância");
-    expect(t).toContain("não são paradas");
+    expect(t).toContain("Abra no Google Maps: https://x");
+    expect(t).not.toContain("km");
+    expect(t).not.toContain("paradas");
   });
 });
