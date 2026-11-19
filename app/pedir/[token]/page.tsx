@@ -149,7 +149,6 @@ export default function Pedir() {
             <GrupoCampo rotulo="Origem" obrigatorio htmlFor="campo-origem">
               <CampoEndereco id="campo-origem" token={token} valor={form.origem} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
                 onMudar={(origem, lat, lng, google) => setForm((f) => ({ ...f, origem, origem_lat: lat, origem_lng: lng, origem_google: !!google }))} />
-              <LocaisCadastrados locais={dados.locais} rotulo="Sair de um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, origem: l.texto, origem_lat: l.lat, origem_lng: l.lng, origem_google: false }))} />
               <div className="atalhos">
                 {minhaUnidade && <button type="button" className="atalho" onClick={() => setForm({ ...form, origem: minhaUnidade.texto, origem_lat: minhaUnidade.lat, origem_lng: minhaUnidade.lng, origem_google: false })}>Sair da {minhaUnidade.nome}</button>}
                 <button type="button" className="atalho" onClick={usarLocalizacao} disabled={localizando}>{localizando ? "Buscando endereço…" : "Usar minha localização"}</button>
@@ -160,7 +159,6 @@ export default function Pedir() {
             <GrupoCampo rotulo="Destino" obrigatorio htmlFor="campo-destino">
               <CampoEndereco id="campo-destino" token={token} valor={form.destino} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
                 onMudar={(destino, lat, lng, google) => setForm((f) => ({ ...f, destino, destino_lat: lat, destino_lng: lng, destino_google: !!google }))} />
-              <LocaisCadastrados locais={dados.locais} rotulo="Ir para um local cadastrado" onEscolher={(l) => setForm((f) => ({ ...f, destino: l.texto, destino_lat: l.lat, destino_lng: l.lng, destino_google: false }))} />
               {minhaUnidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: minhaUnidade.texto, destino_lat: minhaUnidade.lat, destino_lng: minhaUnidade.lng, destino_google: false })}>Ir para a {minhaUnidade.nome}</button></div>}
               <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng, destino_google: false })} />
             </GrupoCampo>
@@ -222,21 +220,6 @@ export default function Pedir() {
 }
 
 /** Atalhos com os endereços que a pessoa mais usa. */
-/** Lista suspensa com as unidades e os locais cadastrados pelo planejamento. */
-function LocaisCadastrados({ locais, rotulo, onEscolher }: { locais?: LocalCadastrado[]; rotulo: string; onEscolher: (l: LocalCadastrado) => void }) {
-  if (!locais?.length) return null;
-  const unidades = locais.filter((l) => l.tipo === "unidade"), outros = locais.filter((l) => l.tipo === "local");
-  const opcao = (l: LocalCadastrado) => <option key={l.texto} value={l.texto}>{l.nome}</option>;
-  return (
-    <select className="locais-cadastrados" value="" aria-label={rotulo}
-      onChange={(e) => { const l = locais.find((x) => x.texto === e.target.value); if (l) onEscolher(l); }}>
-      <option value="">{rotulo}…</option>
-      {unidades.length > 0 && (outros.length ? <optgroup label="Unidades">{unidades.map(opcao)}</optgroup> : unidades.map(opcao))}
-      {outros.length > 0 && (unidades.length ? <optgroup label="Outros locais">{outros.map(opcao)}</optgroup> : outros.map(opcao))}
-    </select>
-  );
-}
-
 function Frequentes({ lista, atual, onEscolher, locais }: {
   locais?: LocalCadastrado[];
   lista?: { endereco: string; lat: number | null; lng: number | null }[]; atual: string; onEscolher: (f: { endereco: string; lat: number | null; lng: number | null }) => void;

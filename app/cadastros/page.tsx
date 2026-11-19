@@ -63,14 +63,14 @@ export default function Cadastros() {
       {aba === "precos" && <TabelaPrecos />}
 
       {aba === "unidades" && <Crud key="uni" table="unidades" title="Unidades" nomeItem="unidade" ordem="nome"
-        subtitulo="Unidades da empresa. As que têm endereço aparecem para todos no app de pedido, em “local cadastrado”."
+        subtitulo="Unidades da empresa. As que têm endereço aparecem primeiro nas sugestões de endereço do pedido e como opção no WhatsApp."
         fields={[
           { key: "nome", label: "Nome", required: true, unico: true, placeholder: "CD Extrema" },
           { key: "endereco_padrao", label: "Endereço", largo: true, placeholder: "Rua, número, bairro, cidade - UF", ajuda: "Com número e cidade, para o mapa achar o lugar certo. Aparece no app de pedido como origem e destino." },
         ]} />}
 
       {aba === "locais" && <Crud key="loc" table="locais" title="Locais frequentes" nomeItem="local" ordem="nome"
-        subtitulo="Lugares que não são unidades da empresa, mas para onde se vai com frequência: hospital, aeroporto, rodoviária, cliente. Aparecem no app de pedido junto com as unidades."
+        subtitulo="Lugares que não são unidades da empresa, mas para onde se vai com frequência: hospital, aeroporto, rodoviária, cliente. Aparecem primeiro nas sugestões de endereço do pedido e como opção no WhatsApp, junto com as unidades."
         fields={[
           { key: "nome", label: "Nome", required: true, unico: true, placeholder: "Pronto Socorro Municipal" },
           { key: "endereco", label: "Endereço", required: true, largo: true, placeholder: "Rua, número, bairro, cidade - UF", ajuda: "Com número e cidade, para o mapa achar o lugar certo." },
