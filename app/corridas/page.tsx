@@ -1,6 +1,7 @@
 "use client";
+import { paradasDa, trajetoTexto } from "@/lib/multidestino";
 import { formatarPlaca } from "@/lib/motorista";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
 import { Campo, Filtros, PainelLateral, TopoPagina } from "@/components/Formulario";
@@ -169,7 +170,7 @@ export default function Corridas() {
       { titulo: "Valor informado", formato: "moeda", largura: 15 }, { titulo: "Valor faturado", formato: "moeda", largura: 15 },
     ], linhas.map((c) => [
       c.protocolo, formatarDataHora(c.data_hora_prevista), c.tipo === "agendada" ? "Agendada" : "Imediata", c.solicitante_nome, c.solicitante_setor,
-      c.origem, c.destino, c.qtd_passageiros, c.motivo, c.observacoes, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
+      c.origem, trajetoTexto(c), c.qtd_passageiros, c.motivo, c.observacoes, c.fornecedor_nome, STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
       c.motorista, c.veiculo_placa, c.distancia_km == null ? null : Number(c.distancia_km),
       c.valor_tabela == null ? null : Number(c.valor_tabela), c.preco_descricao,
       porKmDaLinha(c), porKmDaLinha(c) != null && c.valor_tabela != null ? Math.round((porKmDaLinha(c)! - Number(c.valor_tabela)) * 100) / 100 : null,
@@ -216,7 +217,7 @@ export default function Corridas() {
                   <td><span className="protocolo">{c.protocolo}</span></td>
                   <td className="data-celula"><span>{formatarDataHora(c.data_hora_prevista)}</span><small>{c.tipo === "agendada" ? "Agendada" : "Imediata"}</small></td>
                   <td>{c.solicitante_nome}<small className="bloco texto-fraco">{c.solicitante_setor ?? ""}</small></td>
-                  <td className="trajeto">{c.origem}<small>→ {c.destino}</small></td>
+                  <td className="trajeto">{c.origem}<small>→ {trajetoTexto(c)}</small></td>
                   <td>{c.fornecedor_nome ?? <span className="texto-fraco">—</span>}</td>
                   <td><StatusTag status={c.status} />{["enviada", "sem_resposta"].includes(c.status) && <div><Prazo ate={c.prazo_resposta_em} compacto /></div>}</td>
                   <td className="num">{fmtKm(c.distancia_km) ?? <span className="texto-fraco">—</span>}{c.distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimado</small>}</td>
@@ -233,7 +234,7 @@ export default function Corridas() {
           {rows.map((c) => (
             <button key={c.id} type="button" className="cartao-corrida" onClick={() => abrir(c.id)}>
               <div className="cartao-corrida-topo"><span className="protocolo">{c.protocolo}</span><StatusTag status={c.status} /></div>
-              <div className="cartao-corrida-trajeto">{c.origem}<small>→ {c.destino}</small></div>
+              <div className="cartao-corrida-trajeto">{c.origem}<small>→ {trajetoTexto(c)}</small></div>
               <div className="cartao-corrida-rodape">
                 <span>{formatarDataHora(c.data_hora_prevista)} · {c.solicitante_nome}</span>
                 <b>{brl(c.valor_informado)}{acimaDaTabela(c) && <small className="bloco acima-tabela">tabela {brl(c.valor_tabela)}</small>}</b>
@@ -409,13 +410,14 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             <dt>Solicitante</dt><dd>{c.solicitantes?.nome ?? "—"}{c.solicitantes?.setor ? ` · ${c.solicitantes.setor}` : ""}{c.solicitantes?.telefone_whatsapp ? <><br /><small className="texto-fraco">{formatarTelefone(c.solicitantes.telefone_whatsapp)}</small></> : null}</dd>
             <dt>Data/hora prevista</dt><dd>{formatarDataHora(c.data_hora_prevista)} · {c.tipo === "agendada" ? "agendada" : "imediata"}</dd>
             <dt>Origem</dt><dd>{c.origem}</dd>
-            <dt>Destino</dt><dd>{c.destino}</dd>
+            {paradasDa(c).map((p, i) => <Fragment key={i}><dt>Parada {i + 1}</dt><dd>{p.texto}</dd></Fragment>)}
+            <dt>{paradasDa(c).length ? "Destino final" : "Destino"}</dt><dd>{c.destino}{paradasDa(c).length > 0 && <small className="bloco texto-fraco">o mais longe da origem; paradas na ordem de menor km, e o valor de tabela é o deste destino</small>}</dd>
             <dt>Passageiros</dt><dd>{c.qtd_passageiros}{c.outros_passageiros ? ` · ${c.outros_passageiros}` : ""}</dd>
             <dt>Motivo</dt><dd>{c.motivo}</dd>
             {c.observacoes && <><dt>Observações</dt><dd className="observacoes-corrida">{c.observacoes}</dd></>}
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa ? formatarPlaca(c.veiculo_placa) : null, c.eta_minutos != null ? `chegada em ${c.eta_minutos} min após o aceite` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado (a corrida só é confirmada com motorista, placa e horário)</span>}</dd>
-            <dt>Distância (trajeto)</dt><dd>{c.distancia_km != null ? <>{fmtKm(c.distancia_km)}{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</> : <span className="texto-fraco">Ainda não calculada</span>}
+            <dt>{paradasDa(c).length ? "Km rodado (com paradas)" : "Distância (trajeto)"}</dt><dd>{c.distancia_km != null ? <>{fmtKm(c.distancia_km)}{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</> : <span className="texto-fraco">Ainda não calculada</span>}
               {podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={recalcularKm}>{c.distancia_km != null ? "Recalcular km" : "Calcular km"}</button>}</dd>
             <dt>Valor por km</dt><dd>{(() => {
               const f = c.fornecedores;

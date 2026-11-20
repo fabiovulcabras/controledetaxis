@@ -1,3 +1,4 @@
+import { trajetoTexto } from "../multidestino";
 import { normalizarTelefone } from "../telefone";
 import type { Corrida, Fornecedor, Repo, Saida } from "./tipos";
 import type { OrigemEvento } from "../status";
@@ -92,7 +93,7 @@ export async function despachar(repo: Repo, c: Corrida, forn: Fornecedor, agora:
   const sol = await repo.solicitante(c.solicitante_id);
   const parametros = [
     c.protocolo, sol?.nome ?? "-", c.tipo === "imediata" ? `agora (${formatarHora(c.data_hora_prevista)})` : formatarDataHora(c.data_hora_prevista),
-    c.origem, c.destino, String(c.qtd_passageiros), formatarHora(prazo),
+    c.origem, trajetoTexto(c), String(c.qtd_passageiros), formatarHora(prazo),
   ];
   return {
     corrida: atual,

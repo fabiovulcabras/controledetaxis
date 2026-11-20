@@ -1,3 +1,4 @@
+import { trajetoTexto } from "@/lib/multidestino";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { aparelhoConectado } from "@/lib/acesso-fornecedor";
 import { dentroDoLimite, muitasTentativas, tokenValido } from "@/lib/links-api";
@@ -37,7 +38,7 @@ export async function GET(req: Request) {
     const { data: esp } = await db.from("espelhos").select("*").eq("id", id).eq("fornecedor_id", r.forn.id).maybeSingle();
     if (!esp) return erroJson("Espelho não encontrado.", 404);
     const [{ data: itens }, { data: extras }, { data: eventos }] = await Promise.all([
-      db.from("espelho_itens").select("*, corridas(protocolo,data_hora_prevista,origem,destino,qtd_passageiros,token_fornecedor,solicitantes(nome))").eq("espelho_id", id),
+      db.from("espelho_itens").select("*, corridas(*, solicitantes(nome))").eq("espelho_id", id),
       db.from("corrida_extras").select("corrida_id,tipo,descricao,valor,status,motivo_recusa").eq("espelho_id", id),
       db.from("espelho_eventos").select("origem,tipo,descricao,criado_em").eq("espelho_id", id).order("criado_em"),
     ]);
@@ -49,7 +50,7 @@ export async function GET(req: Request) {
         nf_numero: esp.nf_numero, nf_valor: esp.nf_valor != null ? Number(esp.nf_valor) : null, nf_enviada_em: esp.nf_enviada_em, pago_em: esp.pago_em },
       itens: lista.map((i: any) => ({
         id: i.id, protocolo: i.corridas?.protocolo, quando: i.corridas ? formatarDataHora(i.corridas.data_hora_prevista) : "",
-        origem: i.corridas?.origem, destino: i.corridas?.destino, passageiros: i.corridas?.qtd_passageiros, solicitante: i.corridas?.solicitantes?.nome ?? "—",
+        origem: i.corridas?.origem, destino: i.corridas ? trajetoTexto(i.corridas) : "", passageiros: i.corridas?.qtd_passageiros, solicitante: i.corridas?.solicitantes?.nome ?? "—",
         link: i.corridas?.token_fornecedor ? `/f/${i.corridas.token_fornecedor}` : null,
         valor_informado: i.valor_informado != null ? Number(i.valor_informado) : null, valor_base: Number(i.valor_base), base_origem: i.base_origem,
         valor_extras: Number(i.valor_extras), valor_final: Number(i.valor_final), ajuste_obs: i.ajuste_obs,

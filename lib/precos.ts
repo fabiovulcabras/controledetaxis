@@ -33,9 +33,10 @@ export const modalidadePorPassageiros = (n: number): Exclude<Modalidade, "qualqu
  * 2. bairro: a linha cujo bairro (ou apelido) aparece no endereço; sem bairro reconhecido, a linha sem bairro (resto da cidade);
  * 3. veículo e modalidade pelos passageiros. Sem a modalidade exata, usa "qualquer" e, por último, a outra modalidade.
  */
-export function escolherPreco(linhas: LinhaPreco[], onde: Onde, passageiros: number): PrecoEscolhido | null {
+export function escolherPreco(linhas: LinhaPreco[], onde: Onde, passageiros: number, variosDestinos = false): PrecoEscolhido | null {
   const veiculo = veiculoPorPassageiros(passageiros);
-  const modalidade = modalidadePorPassageiros(passageiros);
+  // Corrida com paradas é sempre de diversos destinos, mesmo com um passageiro
+  const modalidade = variosDestinos ? "diversos" : modalidadePorPassageiros(passageiros);
   const texto = normalizar(onde.texto);
   const cidadeMapa = normalizar(onde.cidade);
   const tudo = normalizar([...(onde.bairros ?? []), onde.texto].join(" "));
@@ -76,10 +77,10 @@ export function pontasDoPreco(c: { origem: string; destino: string }, nomesUnida
  * Preço do trecho: o maior entre as pontas que contam. Assim Bragança → casa em Extrema vale Bragança (ida e volta iguais),
  * e o fornecedor que não tem preço para nenhuma das pontas não atende o trecho (null).
  */
-export function escolherPrecoTrecho(linhas: LinhaPreco[], pontas: Onde[], passageiros: number): PrecoEscolhido | null {
+export function escolherPrecoTrecho(linhas: LinhaPreco[], pontas: Onde[], passageiros: number, variosDestinos = false): PrecoEscolhido | null {
   let melhor: PrecoEscolhido | null = null;
   for (const onde of pontas) {
-    const p = escolherPreco(linhas, onde, passageiros);
+    const p = escolherPreco(linhas, onde, passageiros, variosDestinos);
     if (p && (!melhor || p.valor > melhor.valor)) melhor = p;
   }
   return melhor;

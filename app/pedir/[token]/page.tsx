@@ -29,6 +29,8 @@ export default function Pedir() {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erroLink, setErroLink] = useState("");
   const [form, setForm] = useState(vazio);
+  // Outros destinos além do principal (até 4). O app escolhe a ordem de menor km e deixa o mais longe como final.
+  const [extras, setExtras] = useState<{ texto: string; lat: number | null; lng: number | null; google: boolean }[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [err, setErr] = useState("");
   const [resultado, setResultado] = useState<Resultado | null>(null);
@@ -85,6 +87,7 @@ export default function Pedir() {
         token, chave_envio: chaveEnvio, tipo: form.tipo, data_hora: form.data_hora ? new Date(form.data_hora).toISOString() : null,
         origem: form.origem, origem_lat: form.origem_lat, origem_lng: form.origem_lng, destino: form.destino, destino_lat: form.destino_lat, destino_lng: form.destino_lng, origem_google: form.origem_google, destino_google: form.destino_google, qtd_passageiros: Number(form.qtd_passageiros), outros_passageiros: form.outros_passageiros,
         motivo, observacoes: form.observacoes.trim(),
+        destinos_extras: extras.filter((x) => x.texto.trim().length >= 3),
       }),
     });
     const j = await r.json().catch(() => ({}));
@@ -93,6 +96,7 @@ export default function Pedir() {
     setResultado(j);
     setChaveEnvio(novaChave());
     setForm(vazio);
+    setExtras([]);
     window.scrollTo(0, 0);
     void carregar();
   };
@@ -162,6 +166,19 @@ export default function Pedir() {
               {minhaUnidade && <div className="atalhos"><button type="button" className="atalho" onClick={() => setForm({ ...form, destino: minhaUnidade.texto, destino_lat: minhaUnidade.lat, destino_lng: minhaUnidade.lng, destino_google: false })}>Ir para a {minhaUnidade.nome}</button></div>}
               <Frequentes locais={dados.locais} lista={dados.frequentes} atual={form.destino} onEscolher={(f) => setForm({ ...form, destino: f.endereco, destino_lat: f.lat, destino_lng: f.lng, destino_google: false })} />
             </GrupoCampo>
+            {extras.map((x, i) => (
+              <GrupoCampo key={i} rotulo={`Outro destino (${i + 2})`} htmlFor={`campo-destino-${i + 2}`}>
+                <div className="linha-destino-extra">
+                  <CampoEndereco id={`campo-destino-${i + 2}`} token={token} valor={x.texto} placeholder="Digite rua e número ou o nome de um local" perto={perto} locais={dados.locais}
+                    onMudar={(texto, lat, lng, google) => setExtras((l) => l.map((y, k) => (k === i ? { texto, lat, lng, google: !!google } : y)))} />
+                  <button type="button" className="ghost" aria-label={`Remover destino ${i + 2}`} onClick={() => setExtras((l) => l.filter((_, k) => k !== i))}>Remover</button>
+                </div>
+              </GrupoCampo>
+            ))}
+            {extras.length < 4 && (
+              <button type="button" className="atalho" style={{ justifySelf: "start" }} onClick={() => setExtras((l) => [...l, { texto: "", lat: null, lng: null, google: false }])}>+ Adicionar outro destino</button>
+            )}
+            {extras.length > 0 && <p className="campo-ajuda" style={{ margin: 0 }}>O app organiza as paradas pelo menor trajeto em km. O destino mais longe fica como destino final e define o valor da tabela.</p>}
             <Campo rotulo="Passageiros" obrigatorio>
               <select value={form.qtd_passageiros} onChange={campo("qtd_passageiros")}>
                 {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n === 1 ? "Só eu" : `${n} pessoas`}</option>)}

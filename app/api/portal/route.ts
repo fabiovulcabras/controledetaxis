@@ -1,3 +1,4 @@
+import { trajetoTexto } from "@/lib/multidestino";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { aparelhoConectado } from "@/lib/acesso-fornecedor";
 import { dentroDoLimite, muitasTentativas, tokenValido } from "@/lib/links-api";
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
       if ("erro" in p) return erroJson(p.erro, 400);
       ({ inicio, fim } = p);
     }
-    const colunas = "id,protocolo,status,tipo,data_hora_prevista,origem,destino,solicitante_nome,valor_informado,token_fornecedor,prazo_resposta_em,observacoes";
+    const colunas = "*"; // inclui as paradas (migração 019) quando existirem
     const [ativas, encerradas] = await Promise.all([
       db.from("corridas_lista").select(colunas).eq("fornecedor_id", forn.id).in("status", ATIVAS)
         .gte("data_hora_prevista", new Date(Date.now() - 45 * 86400_000).toISOString()).order("data_hora_prevista", { ascending: true }).limit(150),
@@ -43,7 +44,7 @@ export async function GET(req: Request) {
     if (ativas.error) throw new Error(ativas.error.message);
     const item = (c: any) => ({
       protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as StatusCorrida]?.rotulo ?? c.status,
-      quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: c.destino, solicitante: c.solicitante_nome,
+      quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: trajetoTexto(c), solicitante: c.solicitante_nome,
       valor: c.valor_informado != null ? brl(Number(c.valor_informado)) : null, link: `/f/${c.token_fornecedor}`, prazo_iso: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? c.prazo_resposta_em : null, observacoes: c.observacoes ?? null,
     });
     const lista = (ativas.data ?? []) as any[];

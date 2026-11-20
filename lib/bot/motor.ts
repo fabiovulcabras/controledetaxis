@@ -1,3 +1,4 @@
+import { trajetoTexto } from "../multidestino";
 import { formatarHora, formatarPlaca, lerDadosMotorista, lerHorarioChegada, nomeValido, placaValida, textoChegada } from "../motorista";
 import type { Conversa, Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
@@ -227,7 +228,7 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
         await repo.salvarConversa(tel, "menu", {}, agora);
         if (!lista.length) return [...saidas, pergunta(tel, "Você ainda não tem corridas registradas.", MENU)];
         return [...saidas, pergunta(tel, "Suas últimas corridas:\n\n" + lista.map((c) =>
-          `${c.protocolo} · ${formatarDataHora(c.data_hora_prevista)}\n${c.destino}\n${STATUS[c.status].rotulo}`).join("\n\n"), MENU)];
+          `${c.protocolo} · ${formatarDataHora(c.data_hora_prevista)}\n${trajetoTexto(c)}\n${STATUS[c.status].rotulo}`).join("\n\n"), MENU)];
       }
       if (op === "cancelar") {
         const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((c) => CANCELAVEIS_SOLICITANTE.includes(c.status)).slice(0, 10);

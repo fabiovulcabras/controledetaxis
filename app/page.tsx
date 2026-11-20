@@ -1,4 +1,5 @@
 "use client";
+import { trajetoTexto } from "@/lib/multidestino";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -89,7 +90,7 @@ export default function VisaoGeral() {
                     <span className={`sev${c.status === "contestada" ? " aviso" : ""}`} />
                     <div className="texto">
                       <span className="protocolo">{c.protocolo}</span> <StatusTag status={c.status} />
-                      <div>{c.solicitante_nome} · {c.destino}</div>
+                      <div>{c.solicitante_nome} · {trajetoTexto(c)}</div>
                       <small>{c.fornecedor_nome ?? "Sem fornecedor"} · {formatarDataHora(c.data_hora_prevista)}</small>
                     </div>
                     <Link className="ghost" href={`/corridas?id=${c.id}`}>Abrir</Link>
@@ -106,7 +107,7 @@ export default function VisaoGeral() {
                   <li key={c.id}>
                     <div className="texto">
                       <span className="protocolo">{c.protocolo}</span> <Prazo ate={c.prazo_resposta_em} />
-                      <div>{c.solicitante_nome} · {c.destino}</div>
+                      <div>{c.solicitante_nome} · {trajetoTexto(c)}</div>
                       <small>{c.fornecedor_nome ?? "Sem fornecedor"} · {formatarDataHora(c.data_hora_prevista)}</small>
                     </div>
                     <Link className="ghost" href={`/corridas?id=${c.id}`}>Abrir</Link>

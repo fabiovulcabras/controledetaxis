@@ -1,3 +1,6 @@
+import { trajetoTexto } from "@/lib/multidestino";
+import { otimizarDestinos } from "@/lib/km-corrida";
+import { MAX_DESTINOS } from "@/lib/multidestino";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { escolherFornecedor, despachar, numero } from "@/lib/bot/acoes";
 import { despacharSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
@@ -51,7 +54,7 @@ export async function GET(req: Request) {
       frequentes: frequentes(lista),
       corridas: lista.slice(0, 10).map((c: any) => ({
         id: c.id, protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as keyof typeof STATUS]?.rotulo ?? c.status,
-        quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: c.destino, fornecedor: c.fornecedores?.nome ?? null,
+        quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: trajetoTexto(c), fornecedor: c.fornecedores?.nome ?? null,
         motorista: [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") || null,
         pode_cancelar: CANCELAVEIS_SOLICITANTE.includes(c.status),
         // Para o botão "Repetir": refaz o formulário com os mesmos dados
@@ -118,7 +121,7 @@ export async function POST(req: Request) {
     const doisMin = new Date(agora.getTime() - 2 * 60_000).toISOString();
     const { data: recente } = await db.from("corridas").select("*").eq("solicitante_id", sol.id).eq("origem", origem).eq("destino", destino)
       .gte("criado_em", doisMin).neq("status", "cancelada").order("criado_em", { ascending: false }).limit(1);
-    if (recente?.[0]) return respostaPedido(req, recente[0] as Corrida, sol.nome, "Este pedido já tinha sido registrado agora há pouco.");
+    if (recente?.[0] && !(Array.isArray(corpo.destinos_extras) && corpo.destinos_extras.length)) return respostaPedido(req, recente[0] as Corrida, sol.nome, "Este pedido já tinha sido registrado agora há pouco.");
 
     // Freio para link vazado ou uso indevido
     const limiteHora = await numero(repo, "limite_pedidos_hora", 6);
@@ -126,24 +129,49 @@ export async function POST(req: Request) {
       .gte("criado_em", new Date(agora.getTime() - 3600_000).toISOString());
     if ((count ?? 0) >= limiteHora) return erroJson(`Limite de ${limiteHora} pedidos por hora atingido. Se precisar de mais, fale com o planejamento.`, 429);
 
-    const pontos = { origem_lat: num(corpo.origem_lat), origem_lng: num(corpo.origem_lng), destino_lat: num(corpo.destino_lat), destino_lng: num(corpo.destino_lng) };
+    // Vários destinos: o destino digitado e os extras. O app escolhe o final (o mais longe) e a ordem de menor km.
+    const extras = (Array.isArray(corpo.destinos_extras) ? corpo.destinos_extras : []).slice(0, MAX_DESTINOS - 1)
+      .map((x: any) => ({ texto: String(x?.texto ?? "").trim().slice(0, 300), lat: num(x?.lat), lng: num(x?.lng), google: !!x?.google }))
+      .filter((x: { texto: string }) => x.texto.length >= 3);
+    let destinoFinal = { texto: destino, lat: num(corpo.destino_lat), lng: num(corpo.destino_lng), google: !!corpo.destino_google };
+    let paradas: { texto: string; lat: number | null; lng: number | null; google: boolean }[] = [];
+    let rotaOtimizada: { km: number; fonte: string } | null = null;
+    if (extras.length) {
+      const todos = [destinoFinal, ...extras];
+      const ot = await otimizarDestinos(db, { texto: origem, lat: num(corpo.origem_lat), lng: num(corpo.origem_lng) }, todos).catch(() => null);
+      // Sem achar todos no mapa, vale a ordem digitada (o último é o final)
+      const ordem = ot?.ordem ?? [...todos.keys()];
+      destinoFinal = todos[ordem[ordem.length - 1]];
+      paradas = ordem.slice(0, -1).map((i) => todos[i]);
+      if (ot) rotaOtimizada = { km: ot.km, fonte: ot.fonte };
+    }
+
+    const pontos = { origem_lat: num(corpo.origem_lat), origem_lng: num(corpo.origem_lng), destino_lat: destinoFinal.lat, destino_lng: destinoFinal.lng };
     // Pontos vindos do Google Places servem para a distância e a tabela, mas não ficam gravados (termos do Google Maps)
     const doGoogle = {
       ...(corpo.origem_google ? { origem_lat: pontos.origem_lat, origem_lng: pontos.origem_lng } : {}),
-      ...(corpo.destino_google ? { destino_lat: pontos.destino_lat, destino_lng: pontos.destino_lng } : {}),
+      ...(destinoFinal.google ? { destino_lat: pontos.destino_lat, destino_lng: pontos.destino_lng } : {}),
     };
     const gravar = { ...pontos, ...Object.fromEntries(Object.keys(doGoogle).map((k) => [k, null])) };
 
     const corrida = await repo.criarCorrida({
-      solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino,
+      solicitante_id: sol.id, tipo, data_hora_prevista: quando.toISOString(), origem, destino: destinoFinal.texto,
+      // Paradas: coordenadas do Google não ficam gravadas (o km é recalculado buscando o endereço)
+      ...(paradas.length ? { paradas: paradas.map((x) => ({ texto: x.texto, lat: x.google ? null : x.lat, lng: x.google ? null : x.lng })) } : {}),
       qtd_passageiros: qtd, outros_passageiros: qtd > 1 ? String(corpo.outros_passageiros ?? "").trim().slice(0, 200) || null : null, motivo,
       ...(observacoes ? { observacoes } : {}),
       ...gravar,  ...(chave ? { chave_envio: chave } : {}),
     });
     Object.assign(corrida, doGoogle);
 
-    // Distância por ruas (Google Routes ou OpenRouteService), gravada antes do envio
-    await repo.garantirDistancia?.(corrida).catch(() => null);
+    // Km rodado: com vários destinos, o da rota otimizada; senão, a distância por ruas (Google Routes ou OpenRouteService)
+    if (rotaOtimizada) {
+      const campos = { distancia_km: rotaOtimizada.km, distancia_fonte: rotaOtimizada.fonte, distancia_calculada_em: new Date().toISOString() };
+      const { error: eKm } = await db.from("corridas").update(campos).eq("id", corrida.id);
+      if (!eKm) Object.assign(corrida, campos);
+    } else {
+      await repo.garantirDistancia?.(corrida).catch(() => null);
+    }
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);

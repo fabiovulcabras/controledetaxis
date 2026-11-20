@@ -5,6 +5,7 @@ import type { LocalCadastrado, CamposCorrida, Conversa, Corrida, Fornecedor, Nov
 import type { OrigemEvento, StatusCorrida } from "../status";
 import { variantesTelefone } from "../telefone";
 import { inicioDoMesSP } from "../datas";
+import { paradasDa } from "../multidestino";
 import { escolherPrecoTrecho, pontasDoPreco, type LinhaPreco, type Onde } from "../precos";
 import { localidadePorCoordenadas, localidadePorTexto } from "../endereco";
 
@@ -46,7 +47,7 @@ export class RepoSupabase implements Repo {
     }
     const linhas = await this.linhasPreco(c.fornecedor_id);
     if (!linhas.length) return null; // sem a migração 008 ou sem tabela para este fornecedor
-    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
+    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1, paradasDa(c).length > 0);
     const campos = {
       valor_tabela: p?.valor ?? null, preco_id: p?.linha.id ?? null, preco_descricao: p?.descricao ?? null,
       preco_fornecedor_id: c.fornecedor_id, preco_calculado_em: new Date().toISOString(),
@@ -65,7 +66,7 @@ export class RepoSupabase implements Repo {
   async cotacao(fornecedorId: string, c: Corrida): Promise<{ atende: boolean; valor: number | null }> {
     const linhas = await this.linhasPreco(fornecedorId);
     if (!linhas.length) return { atende: true, valor: null };
-    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1);
+    const p = escolherPrecoTrecho(linhas, await this.pontasDaCorrida(c), c.qtd_passageiros || 1, paradasDa(c).length > 0);
     return { atende: !!p, valor: p?.valor ?? null };
   }
   private linhasPreco(fornecedorId: string): Promise<LinhaPreco[]> {

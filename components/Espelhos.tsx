@@ -1,4 +1,5 @@
 "use client";
+import { trajetoTexto } from "@/lib/multidestino";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -21,7 +22,7 @@ type Item = {
   id: string; corrida_id: string; valor_informado: number | null; valor_tabela: number | null; valor_base: number; base_origem: string; conferir: boolean;
   ajuste_obs: string | null; valor_extras: number; valor_final: number; contestacao_status: "contestado" | "aceita" | "mantida" | null;
   contestacao_motivo: string | null; contestacao_valor: number | null; contestacao_resposta: string | null;
-  corridas?: { id: string; protocolo: string; data_hora_prevista: string; destino: string; solicitantes?: { nome: string } | null } | null;
+  corridas?: { id: string; protocolo: string; data_hora_prevista: string; destino: string; paradas?: unknown; solicitantes?: { nome: string } | null } | null;
 };
 type ExtraEsp = { corrida_id: string; tipo: keyof typeof TIPOS_EXTRA; valor: number; status: string };
 type Evento = { id: string; origem: string; tipo: string; descricao: string | null; criado_em: string; profiles?: { nome: string } | null };
@@ -139,7 +140,7 @@ function DetalheEspelho({ espelho: e, podeAgir, onMudou }: { espelho: Espelho; p
 
   const carregar = async () => {
     const [i, x, ev] = await Promise.all([
-      supabase.from("espelho_itens").select("*, corridas(id,protocolo,data_hora_prevista,destino,solicitantes(nome))").eq("espelho_id", e.id),
+      supabase.from("espelho_itens").select("*, corridas(*, solicitantes(nome))").eq("espelho_id", e.id),
       supabase.from("corrida_extras").select("corrida_id,tipo,valor,status").eq("espelho_id", e.id),
       supabase.from("espelho_eventos").select("*, profiles(nome)").eq("espelho_id", e.id).order("criado_em", { ascending: false }),
     ]);
@@ -246,7 +247,7 @@ function DetalheEspelho({ espelho: e, podeAgir, onMudou }: { espelho: Espelho; p
                 <tr key={i.id}>
                   <td>{i.corridas ? <Link href={`/corridas?id=${i.corridas.id}`} className="link-botao protocolo">{i.corridas.protocolo}</Link> : "—"}
                     <small className="bloco texto-fraco">{i.corridas ? formatarDataHora(i.corridas.data_hora_prevista) : ""} · {i.corridas?.solicitantes?.nome}</small>
-                    <small className="bloco texto-fraco">{i.corridas?.destino}</small></td>
+                    <small className="bloco texto-fraco">{i.corridas ? trajetoTexto(i.corridas) : ""}</small></td>
                   <td className="num">{brl(i.valor_informado)}</td>
                   <td className="num">{i.valor_tabela != null ? brl(i.valor_tabela) : <span className="texto-fraco">—</span>}</td>
                   <td className="num">{brl(i.valor_base)}<small className={`bloco ${i.conferir ? "negative" : "texto-fraco"}`}>{i.conferir ? "Conferir" : ORIGEM_BASE[i.base_origem]}</small></td>

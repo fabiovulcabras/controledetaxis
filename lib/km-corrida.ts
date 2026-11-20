@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rotaEntre, type FonteDistancia, type Ponto } from "./distancia";
 import { normalizar } from "./precos";
+import { ordenarDestinos, paradasDa } from "./multidestino";
 
 /** Centro de Extrema: puxa a busca de endereços escritos para a região das corridas. */
 const REGIAO = { lat: -22.854, lng: -46.318 };
@@ -8,7 +9,7 @@ const REGIAO = { lat: -22.854, lng: -46.318 };
 type Corr = {
   id: string; origem: string; destino: string;
   origem_lat?: number | null; origem_lng?: number | null; destino_lat?: number | null; destino_lng?: number | null;
-  distancia_km?: number | null; distancia_fonte?: string | null;
+  distancia_km?: number | null; distancia_fonte?: string | null; paradas?: unknown;
 };
 type Lugar = { nome: string; endereco: string; lat: number | null; lng: number | null };
 
@@ -66,28 +67,41 @@ async function lugaresCadastrados(db: SupabaseClient): Promise<Lugar[]> {
   ];
 }
 
-/**
- * Pontos de origem e destino da corrida: as coordenadas guardadas; sem elas, um local cadastrado com o mesmo texto;
- * por último, o endereço escrito buscado no mapa. `novo`: o ponto pode ser gravado na corrida (não veio do Google).
- */
-export async function pontosDaCorrida(db: SupabaseClient, c: Corr, cacheLugares?: Lugar[]): Promise<{ o: { p: Ponto; novo: boolean }; d: { p: Ponto; novo: boolean } } | null> {
-  const lugares = cacheLugares ?? await lugaresCadastrados(db);
-  const ponto = async (lat: unknown, lng: unknown, texto: string) => {
-    if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) return { p: { lat: Number(lat), lng: Number(lng) }, novo: false };
-    const cad = pontoCadastrado(texto, lugares);
-    if (cad) return { p: cad, novo: true };
-    // Coordenadas do Google não ficam gravadas (os termos do Google Maps limitam guardar o resultado); só a distância
-    const g = await coordenadasDoTexto(texto);
-    return g ? { p: { lat: g.lat, lng: g.lng }, novo: !g.google } : null;
-  };
-  const o = await ponto(c.origem_lat, c.origem_lng, c.origem);
-  const d = o ? await ponto(c.destino_lat, c.destino_lng, c.destino) : null;
-  return o && d ? { o, d } : null;
-}
+type PontoResolvido = { p: Ponto; novo: boolean };
 
 /**
- * Calcula e grava a distância da corrida (origem → destino, por ruas). Usa as coordenadas guardadas; sem elas,
- * um local cadastrado com o mesmo texto; por último, busca o endereço escrito no mapa (e guarda as coordenadas achadas).
+ * Ponto de um endereço: as coordenadas guardadas; sem elas, um local cadastrado com o mesmo texto; por último,
+ * o endereço escrito buscado no mapa. `novo`: o ponto pode ser gravado na corrida (não veio do Google).
+ */
+async function resolverPonto(lat: unknown, lng: unknown, texto: string, lugares: Lugar[]): Promise<PontoResolvido | null> {
+  if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) return { p: { lat: Number(lat), lng: Number(lng) }, novo: false };
+  const cad = pontoCadastrado(texto, lugares);
+  if (cad) return { p: cad, novo: true };
+  // Coordenadas do Google não ficam gravadas (os termos do Google Maps limitam guardar o resultado); só a distância
+  const g = await coordenadasDoTexto(texto);
+  return g ? { p: { lat: g.lat, lng: g.lng }, novo: !g.google } : null;
+}
+
+/** Pontos de origem, paradas (na ordem gravada) e destino final da corrida. Null se algum não for achado. */
+export async function pontosDaCorrida(db: SupabaseClient, c: Corr, cacheLugares?: Lugar[]): Promise<{ o: PontoResolvido; paradas: PontoResolvido[]; d: PontoResolvido } | null> {
+  const lugares = cacheLugares ?? await lugaresCadastrados(db);
+  const o = await resolverPonto(c.origem_lat, c.origem_lng, c.origem, lugares);
+  if (!o) return null;
+  const paradas: PontoResolvido[] = [];
+  for (const x of paradasDa(c)) {
+    const p = await resolverPonto(x.lat, x.lng, x.texto, lugares);
+    if (!p) return null;
+    paradas.push(p);
+  }
+  const d = await resolverPonto(c.destino_lat, c.destino_lng, c.destino, lugares);
+  return d ? { o, paradas, d } : null;
+}
+
+/** Junta a fonte de várias pernas: basta uma estimada para o total ser estimado. */
+const fonteDoTotal = (fontes: FonteDistancia[]): FonteDistancia => (fontes.includes("estimada") ? "estimada" : fontes[0] ?? "estimada");
+
+/**
+ * Calcula e grava o km rodado da corrida: origem → paradas → destino final, cada perna pelo menor trajeto.
  * Sem `forcar`, não refaz quem já tem distância por rota.
  */
 export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = false, cacheLugares?: Lugar[]): Promise<{ km: number; fonte: FonteDistancia } | null> {
@@ -95,7 +109,9 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
   const pts = await pontosDaCorrida(db, c, cacheLugares);
   if (!pts) return null;
   const { o, d } = pts;
-  const rota = await rotaEntre(o.p, d.p);
+  const seq = [o, ...pts.paradas, d];
+  const pernas = await Promise.all(seq.slice(1).map((p, i) => rotaEntre(seq[i].p, p.p)));
+  const rota = { km: Math.round(pernas.reduce((s, r) => s + r.km, 0) * 100) / 100, fonte: fonteDoTotal(pernas.map((r) => r.fonte)) };
   const campos: Record<string, unknown> = { distancia_km: rota.km, distancia_fonte: rota.fonte, distancia_calculada_em: new Date().toISOString() };
   if (o.novo) Object.assign(campos, { origem_lat: o.p.lat, origem_lng: o.p.lng });
   if (d.novo) Object.assign(campos, { destino_lat: d.p.lat, destino_lng: d.p.lng });
@@ -108,6 +124,30 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
   if (error) { console.error("Gravar distância", error.message); return null; }
   Object.assign(c, campos);
   return rota;
+}
+
+type Endereco = { texto: string; lat: number | null; lng: number | null };
+
+/**
+ * Vários destinos: acha o ponto de cada um, mede as distâncias (origem → cada destino e entre os destinos,
+ * pelo menor trajeto) e escolhe o final (o mais longe da origem) e a ordem das paradas de menor km rodado.
+ * Null se algum endereço não for achado no mapa: aí vale a ordem digitada.
+ */
+export async function otimizarDestinos(db: SupabaseClient, origem: Endereco, destinos: Endereco[]): Promise<{ ordem: number[]; km: number; fonte: FonteDistancia } | null> {
+  if (destinos.length < 2) return null;
+  const lugares = await lugaresCadastrados(db);
+  const o = await resolverPonto(origem.lat, origem.lng, origem.texto, lugares);
+  const ds = await Promise.all(destinos.map((x) => resolverPonto(x.lat, x.lng, x.texto, lugares)));
+  if (!o || ds.some((x) => !x)) return null;
+  const pts = ds as PontoResolvido[];
+  const n = pts.length;
+  const fontes: FonteDistancia[] = [];
+  const medir = async (a: Ponto, b: Ponto) => { const r = await rotaEntre(a, b); fontes.push(r.fonte); return r.km; };
+  const daOrigem = await Promise.all(pts.map((p) => medir(o.p, p.p)));
+  const entre: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+  await Promise.all(pts.flatMap((a, i) => pts.map(async (b, j) => { if (i !== j) entre[i][j] = await medir(a.p, b.p); })));
+  const r = ordenarDestinos(daOrigem, entre);
+  return { ordem: r.ordem, km: r.km, fonte: fonteDoTotal(fontes) };
 }
 
 export { lugaresCadastrados };

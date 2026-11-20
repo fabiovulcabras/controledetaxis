@@ -1,6 +1,7 @@
 import { buscarPaginado, periodoExportacao } from "../lib/exportacao-fornecedor";
 import { decodificarPolyline, linkRoteiro, menorKm, pontosDePassagem } from "../lib/distancia";
 import { textoRoteiro } from "../lib/roteiro";
+import { ordenarDestinos, paradasDa, trajetoTexto } from "../lib/multidestino";
 import { aparelhoConectado, assinaturaAcesso, cookieDoFornecedor, cookieSemFornecedor, entradasDoAparelho } from "../lib/acesso-fornecedor";
 import { textoPortal } from "../lib/portal-texto";
 import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
@@ -1202,5 +1203,46 @@ describe("roteiro do menor trajeto", () => {
     expect(t).toContain("Abra no Google Maps: https://x");
     expect(t).not.toContain("km");
     expect(t).not.toContain("paradas");
+  });
+});
+
+describe("vários destinos", () => {
+  it("o mais longe é o final e as paradas vão na ordem de menor km", () => {
+    // destinos: 0 = Centro de Toledo, 1 = Pereiras (Toledo), 2 = Rua Primavera (Extrema)
+    const daOrigem = [19.5, 29.4, 3];
+    const entre = [
+      [0, 10, 17],
+      [10, 0, 27],
+      [17, 27, 0],
+    ];
+    const r = ordenarDestinos(daOrigem, entre);
+    expect(r.final).toBe(1);
+    expect(r.ordem).toEqual([2, 0, 1]); // Primavera → Toledo → Pereiras
+    expect(r.km).toBe(3 + 17 + 10);
+  });
+  it("com um destino só, ele é o final", () => {
+    expect(ordenarDestinos([12], [[0]])).toEqual({ ordem: [0], final: 0, km: 12 });
+  });
+  it("lê as paradas e monta o trajeto em texto", () => {
+    const c = { destino: "Pereiras", paradas: [{ texto: "Rua Primavera", lat: null, lng: null }, { texto: "Centro de Toledo", lat: -22.7, lng: -46.3 }, { lixo: 1 }] };
+    expect(paradasDa(c).length).toBe(2);
+    expect(trajetoTexto(c)).toBe("Rua Primavera → Centro de Toledo → Pereiras");
+    expect(trajetoTexto({ destino: "Vargem" })).toBe("Vargem");
+  });
+  it("roteiro lista as paradas e o destino final", () => {
+    const t = textoRoteiro({ protocolo: "TX-9", origem: "CD", destino: "Pereiras", paradas: [{ texto: "Rua Primavera", lat: null, lng: null }] }, 30, "https://x", 0);
+    expect(t).toContain("Parada 1: Rua Primavera");
+    expect(t).toContain("Destino final: Pereiras");
+  });
+});
+
+describe("preço com vários destinos", () => {
+  it("corrida com paradas usa a linha de diversos destinos mesmo com um passageiro", () => {
+    const L = (localidade: string, cidade: string, bairro: string | null, modalidade: LinhaPreco["modalidade"], veiculo: LinhaPreco["veiculo"], valor: number): LinhaPreco =>
+      ({ id: `${cidade}-${bairro}-${modalidade}-${veiculo}`, fornecedor_id: "f", localidade, cidade, bairro, apelidos: null, modalidade, veiculo, valor });
+    const linhas = [L("Toledo", "Toledo", "Pereiras", "unico", "passeio", 165), L("Toledo", "Toledo", "Pereiras", "diversos", "passeio", 200)];
+    const onde = { cidade: "Toledo", texto: "Bairro dos Pereiras, Toledo" };
+    expect(escolherPreco(linhas, onde, 1)?.valor).toBe(165);
+    expect(escolherPreco(linhas, onde, 1, true)?.valor).toBe(200);
   });
 });

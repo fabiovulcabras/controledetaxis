@@ -657,3 +657,7 @@ p.observacoes-corrida { margin: 6px 0 0; font-size: 13px; }
 /* Link com aparência de botão principal (ex.: abrir roteiro no Google Maps) */
 a.botao-link { display: flex; align-items: center; justify-content: center; border-radius: 8px; padding: 10px 14px; background: var(--navy); color: #fff; font-weight: 700; text-decoration: none; }
 a.botao-link:hover { background: var(--navy-900); }
+
+/* Pedido com vários destinos */
+.linha-destino-extra { display: flex; gap: 8px; align-items: flex-start; }
+.linha-destino-extra > :first-child { flex: 1; min-width: 0; }
