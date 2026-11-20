@@ -49,6 +49,7 @@ async function pedirTaxiCompleto(c: ReturnType<typeof conversa>) {
   await c.enviar({ telefone: ANA, botaoId: "agora" });
   await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
   await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+  await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
   await c.enviar({ telefone: ANA, botaoId: "pax:1" });
   await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
   return c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -72,7 +73,7 @@ describe("solicitação pelo WhatsApp", () => {
     expect(corrida.fornecedor_id).toBe("f1");
     expect(corrida.origem).toContain("R. das Indústrias");
     expect(corrida.destino).toBe("Aeroporto de Guarulhos, Terminal 2");
-    expect(corrida.prazo_resposta_em).toBe(min(8 + 10).toISOString());
+    expect(corrida.prazo_resposta_em).toBe(min(9 + 10).toISOString());
     expect(ultima(s, ANA).texto).toContain("TX-2026-00001 registrada");
     const forn = ultima(s, RTC);
     expect(forn.template?.nome).toBe("nova_corrida_fornecedor");
@@ -90,6 +91,7 @@ describe("solicitação pelo WhatsApp", () => {
     await c.enviar({ telefone: ANA, texto: "amanhã 7h30" });
     await c.enviar({ telefone: ANA, texto: "Rua Augusta, 88" });
     await c.enviar({ telefone: ANA, botaoId: "destino_unidade" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:2" });
     await c.enviar({ telefone: ANA, texto: "Marcos Lima" });
     const s = await c.enviar({ telefone: ANA, texto: "Reunião com fornecedor" });
@@ -107,13 +109,14 @@ describe("solicitação pelo WhatsApp", () => {
     await c.enviar({ telefone: ANA, texto: "25/10 18:00" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Rodoviária Tietê" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, texto: "1" });
     await c.enviar({ telefone: ANA, texto: "Hora extra" });
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
     const corrida = c.repo.corridas[0];
     expect(corrida.tipo).toBe("agendada");
     expect(formatarDataHora(corrida.data_hora_prevista)).toBe("25/10 18:00");
-    expect(corrida.prazo_resposta_em).toBe(min(8 + 120).toISOString());
+    expect(corrida.prazo_resposta_em).toBe(min(9 + 120).toISOString());
   });
 
   it("data no passado é recusada e a pergunta se repete", async () => {
@@ -215,9 +218,9 @@ describe("respostas do fornecedor", () => {
     expect((await c.enviar({ telefone: RTC, texto: "08h00" }))[0].texto).toContain("já passou");
     expect(c.repo.corridas[0].status).toBe("enviada");
 
-    // agora 09h37: chegada 09h48 = 11 min. Com roteiro disponível, ele vai ao fornecedor antes das opções
+    // agora 09h38: chegada 09h49 = 11 min. Com roteiro disponível, ele vai ao fornecedor antes das opções
     (c.repo as any).roteiro = async () => "🗺️ Roteiro da corrida TX-2026-00001";
-    const s2 = await c.enviar({ telefone: RTC, texto: "09h48" });
+    const s2 = await c.enviar({ telefone: RTC, texto: "09h49" });
     const paraRtc = s2.filter((x) => x.para === RTC);
     expect(paraRtc[0].texto).toContain("Roteiro da corrida");
     expect(paraRtc[0].opcoes).toBe(undefined);
@@ -225,7 +228,7 @@ describe("respostas do fornecedor", () => {
     expect(c.repo.corridas[0].motorista).toBe("Carlos Souza");
     expect(c.repo.corridas[0].veiculo_placa).toBe("RTX4F21");
     expect(c.repo.corridas[0].eta_minutos).toBe(11);
-    expect(ultima(s2, ANA).texto).toContain("Motorista: Carlos Souza, placa RTX4F21, chegada prevista às 09h48 (em cerca de 11 min)");
+    expect(ultima(s2, ANA).texto).toContain("Motorista: Carlos Souza, placa RTX4F21, chegada prevista às 09h49 (em cerca de 11 min)");
     expect(ultima(s2, ANA).template?.nome).toBe("atualizacao_corrida_solicitante");
     expect(ultima(s2, RTC).opcoes?.map((o) => o.id)).toEqual(["EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
 
@@ -307,6 +310,7 @@ describe("agendador", () => {
     await c.enviar({ telefone: ANA, texto: "hoje 11:00" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Cliente Moda Norte" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -630,6 +634,7 @@ describe("palavra de ativação", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     const fim = await c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -652,6 +657,7 @@ describe("palavra de ativação", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -674,6 +680,7 @@ describe("observações da corrida", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Aeroporto de Guarulhos, Terminal 2" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     const r1 = await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     expect(ultima(r1, ANA).texto).toContain("Quer deixar uma observação");
@@ -786,6 +793,7 @@ describe("tabela de preços", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, texto: "Rua das Flores, 10, Extrema - MG" });
     await c.enviar({ telefone: ANA, texto: "Av. Brasil, 200, Extrema - MG" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -877,6 +885,7 @@ describe("valor de tabela no envio", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, botaoId: "destino_unidade" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     await c.enviar({ telefone: ANA, botaoId: "motivo:Hora extra" });
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
@@ -895,6 +904,7 @@ describe("motivos cadastráveis", () => {
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
     await c.enviar({ telefone: ANA, texto: "Rodoviária Tietê" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
     const s = await c.enviar({ telefone: ANA, botaoId: "pax:1" });
     const p = ultima(s, ANA);
     expect(p.opcoes?.map((o) => o.titulo)).toEqual(["Hora extra", "Visita a fornecedor", "Consulta médica", "Treinamento"]);
@@ -1244,5 +1254,53 @@ describe("preço com vários destinos", () => {
     const onde = { cidade: "Toledo", texto: "Bairro dos Pereiras, Toledo" };
     expect(escolherPreco(linhas, onde, 1)?.valor).toBe(165);
     expect(escolherPreco(linhas, onde, 1, true)?.valor).toBe(200);
+  });
+});
+
+describe("vários destinos pelo WhatsApp", () => {
+  it("pergunta se há mais destinos, organiza pelo menor km e deixa o mais longe como final", async () => {
+    const c = conversa();
+    // Distâncias de mentira: Pereiras é o mais longe; Primavera → Toledo → Pereiras é a ordem de menor km
+    (c.repo as any).otimizarDestinos = async (_o: unknown, ds: { texto: string }[]) => {
+      const i = (t: string) => ds.findIndex((d) => d.texto.includes(t));
+      return { ordem: [i("Primavera"), i("Centro de Toledo"), i("Pereiras")] };
+    };
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    const s1 = await c.enviar({ telefone: ANA, texto: "Bairro dos Pereiras, Toledo" });
+    expect(ultima(s1, ANA).texto).toContain("Vai a mais algum lugar");
+    expect(ultima(s1, ANA).opcoes?.map((o) => o.id)).toEqual(["mais:nao", "mais:sim"]);
+    expect(ultima(await c.enviar({ telefone: ANA, texto: "2" }), ANA).texto).toContain("Qual o próximo destino?");
+    expect(ultima(await c.enviar({ telefone: ANA, texto: "Rua Primavera, Extrema" }), ANA).texto).toContain("2 de 5");
+    await c.enviar({ telefone: ANA, botaoId: "mais:sim" });
+    await c.enviar({ telefone: ANA, texto: "Centro de Toledo" });
+    expect(ultima(await c.enviar({ telefone: ANA, texto: "não" }), ANA).texto).toContain("Quantos passageiros");
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    const r = await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    expect(ultima(r, ANA).texto).toContain("Destinos: Bairro dos Pereiras, Toledo; Rua Primavera, Extrema; Centro de Toledo");
+    const fim = await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    const corrida = c.repo.corridas[0];
+    expect(corrida.destino).toBe("Bairro dos Pereiras, Toledo");
+    expect(corrida.paradas?.map((p) => p.texto)).toEqual(["Rua Primavera, Extrema", "Centro de Toledo"]);
+    expect(ultima(fim, ANA).texto).toContain("Trajeto: Rua Primavera, Extrema → Centro de Toledo → Bairro dos Pereiras, Toledo");
+    expect(ultima(fim, RTC).texto).toContain("Rua Primavera, Extrema → Centro de Toledo → Bairro dos Pereiras, Toledo");
+  });
+  it("sem o mapa, vale a ordem informada e o último é o final", async () => {
+    const c = conversa();
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "pedir" });
+    await c.enviar({ telefone: ANA, botaoId: "agora" });
+    await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
+    await c.enviar({ telefone: ANA, texto: "Rua A, 10" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:sim" });
+    await c.enviar({ telefone: ANA, texto: "Rua B, 20" });
+    await c.enviar({ telefone: ANA, botaoId: "mais:nao" });
+    await c.enviar({ telefone: ANA, botaoId: "pax:1" });
+    await c.enviar({ telefone: ANA, botaoId: "motivo:Visita a cliente" });
+    await c.enviar({ telefone: ANA, botaoId: "confirmar" });
+    expect(c.repo.corridas[0].destino).toBe("Rua B, 20");
+    expect(c.repo.corridas[0].paradas?.map((p) => p.texto)).toEqual(["Rua A, 10"]);
   });
 });

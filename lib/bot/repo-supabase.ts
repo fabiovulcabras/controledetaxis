@@ -1,4 +1,4 @@
-import { garantirDistancia } from "../km-corrida";
+import { garantirDistancia, otimizarDestinos } from "../km-corrida";
 import { roteiroDaCorrida } from "../roteiro";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LocalCadastrado, CamposCorrida, Conversa, Corrida, Fornecedor, NovaCorrida, Repo, Solicitante, Unidade } from "./tipos";
@@ -56,6 +56,9 @@ export class RepoSupabase implements Repo {
     if (e2) console.error("Gravar valor de tabela", e2.message);
     Object.assign(c, campos);
     return p ? { valor: p.valor, descricao: p.descricao } : null;
+  }
+  async otimizarDestinos(origem: { texto: string; lat: number | null; lng: number | null }, destinos: { texto: string; lat: number | null; lng: number | null }[]) {
+    return otimizarDestinos(this.db, origem, destinos);
   }
   async roteiro(c: Corrida): Promise<string | null> {
     return (await roteiroDaCorrida(this.db, c))?.texto ?? null;

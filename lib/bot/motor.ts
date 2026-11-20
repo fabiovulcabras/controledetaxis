@@ -1,4 +1,4 @@
-import { trajetoTexto } from "../multidestino";
+import { MAX_DESTINOS, trajetoTexto } from "../multidestino";
 import { formatarHora, formatarPlaca, lerDadosMotorista, lerHorarioChegada, nomeValido, placaValida, textoChegada } from "../motorista";
 import type { Conversa, Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Repo, Saida, Solicitante } from "./tipos";
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
@@ -99,6 +99,7 @@ const MENU: Opcao[] = [
 ];
 const OPCOES_QUANDO: Opcao[] = [{ id: "agora", titulo: "Agora" }, { id: "agendar", titulo: "Agendar" }];
 const OPCOES_PAX: Opcao[] = [{ id: "pax:1", titulo: "Só eu" }, { id: "pax:2", titulo: "2 pessoas" }, { id: "pax:3", titulo: "3 ou mais" }];
+const OPCOES_MAIS_DESTINO: Opcao[] = [{ id: "mais:nao", titulo: "Não, seguir" }, { id: "mais:sim", titulo: "Adicionar destino" }];
 const OPCOES_CONFIRMAR: Opcao[] = [{ id: "confirmar", titulo: "Confirmar" }, { id: "corrigir", titulo: "Corrigir" }, { id: "descartar", titulo: "Cancelar" }];
 const OPCOES_MOTIVO_CANCEL: Opcao[] = [{ id: "mc:Não preciso mais", titulo: "Não preciso mais" }, { id: "mc:Mudou o horário", titulo: "Mudou o horário" }, { id: "mc:Outro motivo", titulo: "Outro motivo" }];
 
@@ -179,6 +180,11 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   };
   const pOrigem = () => pLugar("origem");
   const pDestino = () => pLugar("destino");
+  const pMaisDestino = (n: number) => pergunta(tel, `Vai a mais algum lugar nessa corrida? (${n} de ${MAX_DESTINOS} destinos)`, OPCOES_MAIS_DESTINO);
+  const pDestinoExtra = async (): Promise<Saida> => {
+    const p = await pLugar("destino");
+    return { ...p, texto: p.texto.replace("Para onde vai?", "Qual o próximo destino?") };
+  };
   const pPax = () => pergunta(tel, "Quantos passageiros?", OPCOES_PAX);
   // Motivos cadastrados (Cadastros › Motivos): até 3 viram botões; mais que isso, lista (até 10)
   const opcoesMotivo = async (): Promise<Opcao[]> => (await repo.motivos()).slice(0, 10).map((m) => ({ id: `motivo:${m}`, titulo: m.slice(0, 24) }));
@@ -190,7 +196,11 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     return pergunta(tel, [
       "Confira sua solicitação:", "",
       `Quando: ${d.tipo === "imediata" ? "agora" : formatarDataHora(d.data_hora_prevista)}`,
-      `Origem: ${d.origem}`, `Destino: ${d.destino}`,
+      `Origem: ${d.origem}`,
+      ...(Array.isArray(d.destinos_extras) && d.destinos_extras.length
+        ? [`Destinos: ${[d.destino, ...d.destinos_extras.map((x: { texto: string }) => x.texto)].join("; ")}`,
+           "(organizamos as paradas pelo menor trajeto; o destino mais longe fica como destino final)"]
+        : [`Destino: ${d.destino}`]),
       `Passageiros: ${d.qtd_passageiros}${d.outros_passageiros ? ` (${d.outros_passageiros})` : ""}`,
       `Motivo: ${d.motivo}`,
       ...(d.observacoes ? [`Observações: ${d.observacoes}`] : []),
@@ -263,7 +273,29 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
     case "destino": {
       const l = await lugar("destino");
       if (!l) return invalida(await pDestino());
-      return ir("passageiros", pPax(), { destino: l.texto, destino_lat: l.lat, destino_lng: l.lng });
+      return ir("mais_destino", pMaisDestino(1), { destino: l.texto, destino_lat: l.lat, destino_lng: l.lng, destinos_extras: [] });
+    }
+
+    // Vários destinos: até MAX_DESTINOS; a ordem e o destino final são decididos ao registrar (menor km)
+    case "mais_destino": {
+      const op = escolha(e, OPCOES_MAIS_DESTINO);
+      const t = semAcento(e.texto ?? "");
+      const sim = op === "mais:sim" || (!e.botaoId && /^(sim|s|adicionar|mais)$/.test(t));
+      const nao = op === "mais:nao" || (!e.botaoId && /^(nao|n|seguir|nenhum)$/.test(t));
+      const extras = Array.isArray(dados.destinos_extras) ? dados.destinos_extras : [];
+      if (sim) return ir("destino_extra", await pDestinoExtra());
+      if (nao) return ir("passageiros", pPax());
+      return invalida(pMaisDestino(1 + extras.length));
+    }
+
+    case "destino_extra": {
+      const l = await lugar("destino");
+      if (!l) return invalida(await pDestinoExtra());
+      const extras = [...(Array.isArray(dados.destinos_extras) ? dados.destinos_extras : []), { texto: l.texto, lat: l.lat, lng: l.lng }];
+      if (1 + extras.length >= MAX_DESTINOS) {
+        return ir("passageiros", [pergunta(tel, `Destino ${1 + extras.length} anotado. Esse é o limite de ${MAX_DESTINOS} destinos.`), pPax()], { destinos_extras: extras });
+      }
+      return ir("mais_destino", pMaisDestino(1 + extras.length), { destinos_extras: extras });
     }
 
     case "passageiros": {
@@ -361,10 +393,23 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
 /** Grava a corrida, envia ao fornecedor e avisa o planejamento. */
 async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, agora: Date): Promise<Saida[]> {
   const tel = sol.telefone_whatsapp;
+  // Vários destinos: o mais longe da origem é o final e as paradas vão na ordem de menor km
+  // (sem achar todos no mapa, vale a ordem informada e o último é o final)
+  type Lugar = { texto: string; lat: number | null; lng: number | null };
+  const todos: Lugar[] = [{ texto: d.destino, lat: d.destino_lat ?? null, lng: d.destino_lng ?? null },
+    ...(Array.isArray(d.destinos_extras) ? d.destinos_extras : []).slice(0, MAX_DESTINOS - 1)];
+  let final = todos[0], paradas: Lugar[] = [];
+  if (todos.length > 1) {
+    const ot = await repo.otimizarDestinos?.({ texto: d.origem, lat: d.origem_lat ?? null, lng: d.origem_lng ?? null }, todos).catch(() => null);
+    const ordem = ot?.ordem ?? [...todos.keys()];
+    final = todos[ordem[ordem.length - 1]];
+    paradas = ordem.slice(0, -1).map((i) => todos[i]);
+  }
   const corrida = await repo.criarCorrida({
     solicitante_id: sol.id, tipo: d.tipo ?? "imediata",
-    data_hora_prevista: d.data_hora_prevista ?? agora.toISOString(), origem: d.origem, destino: d.destino,
-    origem_lat: d.origem_lat ?? null, origem_lng: d.origem_lng ?? null, destino_lat: d.destino_lat ?? null, destino_lng: d.destino_lng ?? null,
+    data_hora_prevista: d.data_hora_prevista ?? agora.toISOString(), origem: d.origem, destino: final.texto,
+    origem_lat: d.origem_lat ?? null, origem_lng: d.origem_lng ?? null, destino_lat: final.lat ?? null, destino_lng: final.lng ?? null,
+    ...(paradas.length ? { paradas } : {}),
     qtd_passageiros: d.qtd_passageiros ?? 1, outros_passageiros: d.outros_passageiros ?? null, motivo: d.motivo,
     ...(d.observacoes ? { observacoes: d.observacoes } : {}),
   });
@@ -379,7 +424,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
   }
   const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot");
   const resultado: Saida[] = [
-    { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada. Enviamos ao fornecedor ${forn.nome} e avisaremos quando ele responder.` },
+    { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada.${paradas.length ? ` Trajeto: ${trajetoTexto(corrida)}.` : ""} Enviamos ao fornecedor ${forn.nome} e avisaremos quando ele responder.` },
     ...saidas,
   ];
   // O planejamento não recebe aviso de cada corrida registrada (só repetia o pedido); recebe só exceções e alertas

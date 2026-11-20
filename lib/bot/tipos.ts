@@ -97,6 +97,11 @@ export interface Repo {
   motivos(): Promise<string[]>;
   /** Calcula e grava a distância por ruas da corrida, se ainda não tiver (opcional: os testes não usam). */
   garantirDistancia?(c: Corrida): Promise<void>;
+  /**
+   * Vários destinos: ordem de menor km (índices de `destinos`, terminando no final = o mais longe da origem).
+   * Null se algum endereço não for achado no mapa. Opcional: sem ele, vale a ordem informada.
+   */
+  otimizarDestinos?(origem: { texto: string; lat: number | null; lng: number | null }, destinos: { texto: string; lat: number | null; lng: number | null }[]): Promise<{ ordem: number[] } | null>;
   /** Texto do roteiro (menor trajeto e link do Google Maps) para o fornecedor; opcional. */
   roteiro?(c: Corrida): Promise<string | null>;
 
