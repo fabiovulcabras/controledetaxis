@@ -1,3 +1,4 @@
+import { segredoConfere } from "@/lib/segredo";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { deveAtender, processarEntrada } from "@/lib/bot/motor";
@@ -18,7 +19,7 @@ export const maxDuration = 30;
  */
 export async function POST(req: Request) {
   const segredo = process.env.EVOLUTION_WEBHOOK_TOKEN;
-  if (!segredo || new URL(req.url).searchParams.get("token") !== segredo) return new Response("Não autorizado", { status: 401 });
+  if (!segredoConfere(new URL(req.url).searchParams.get("token"), segredo)) return new Response("Não autorizado", { status: 401 });
 
   let corpo: any;
   try { corpo = await req.json(); } catch { return new Response("JSON inválido", { status: 400 }); }

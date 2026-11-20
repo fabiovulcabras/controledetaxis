@@ -1,4 +1,5 @@
 "use client";
+import { buscarPaginado } from "@/lib/exportacao-fornecedor";
 import { paradasDa, trajetoTexto } from "@/lib/multidestino";
 import { formatarPlaca } from "@/lib/motorista";
 import { Fragment, useEffect, useState } from "react";
@@ -156,10 +157,15 @@ export default function Corridas() {
 
   const exportar = async () => {
     setExportando(true);
-    const { data, error } = await consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,qtd_passageiros,motivo,observacoes,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,distancia_fonte,fornecedor_valor_km,fornecedor_bandeirada,valor_tabela,preco_descricao,valor_informado,valor_faturado").limit(10000);
+    // Em partes de 1.000 (o máximo que o Supabase devolve por consulta), até 50.000 corridas
+    let linhas: any[] = [];
+    try {
+      linhas = await buscarPaginado<any>((a, b) => (consulta("protocolo,data_hora_prevista,tipo,solicitante_nome,solicitante_setor,origem,destino,paradas,qtd_passageiros,motivo,observacoes,fornecedor_nome,status,motorista,veiculo_placa,distancia_km,distancia_fonte,fornecedor_valor_km,fornecedor_bandeirada,valor_tabela,preco_descricao,valor_informado,valor_faturado") as any).order("id").range(a, b), 50000);
+    } catch (e) {
+      setExportando(false);
+      avisar(`Não foi possível exportar: ${e instanceof Error ? e.message : e}`, "erro"); return;
+    }
     setExportando(false);
-    if (error) { avisar(`Não foi possível exportar: ${error.message}`, "erro"); return; }
-    const linhas = (data ?? []) as any[];
     baixarXlsx(`corridas-${de}-a-${ate}.xlsx`, "Corridas", [
       { titulo: "Protocolo", largura: 16 }, { titulo: "Data/hora", largura: 14 }, { titulo: "Tipo", largura: 10 }, { titulo: "Solicitante", largura: 22 },
       { titulo: "Setor", largura: 14 }, { titulo: "Origem", largura: 36 }, { titulo: "Destino", largura: 36 }, { titulo: "Passageiros", formato: "inteiro", largura: 11 },

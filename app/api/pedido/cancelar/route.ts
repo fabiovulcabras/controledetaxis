@@ -1,3 +1,4 @@
+import { precisaCodigo, respostaCodigo } from "@/lib/acesso-solicitante";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { cancelarCorrida } from "@/lib/bot/acoes";
 import { despacharSaidas } from "@/lib/whatsapp/transporte";
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
   try {
     const sol = await solicitantePorToken(corpo.token);
     if (!sol) return erroJson("Este link não vale mais.", 404);
+    if (await precisaCodigo(req, sol as any)) return respostaCodigo();
     const repo = repoServidor();
     const c = await repo.corrida(String(corpo.corrida_id ?? ""));
     if (!c || c.solicitante_id !== sol.id) return erroJson("Corrida não encontrada.", 404);

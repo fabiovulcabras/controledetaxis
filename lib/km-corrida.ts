@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "crypto";
 import { rotaEntre, type FonteDistancia, type Ponto } from "./distancia";
 import { normalizar } from "./precos";
 import { ordenarDestinos, paradasDa } from "./multidestino";
@@ -67,6 +68,26 @@ async function lugaresCadastrados(db: SupabaseClient): Promise<Lugar[]> {
   ];
 }
 
+const CACHE_DIAS = 30;
+/** Chave do trecho: pontos arredondados (~10 m) e embaralhados (sha256), para não guardar coordenadas do Google. */
+const chaveTrecho = (a: Ponto, b: Ponto) => createHash("sha256").update([a.lat, a.lng, b.lat, b.lng].map((n) => n.toFixed(4)).join(",")).digest("hex");
+
+/**
+ * Menor trajeto entre dois pontos com cache de 30 dias (tabela rotas_cache, migração 020): o mesmo trecho
+ * (ex.: CD → Pereiras) não paga outra chamada ao Google. Estimativas (linha reta) não entram no cache.
+ */
+export async function rotaComCache(db: SupabaseClient, a: Ponto, b: Ponto): Promise<{ km: number; fonte: FonteDistancia }> {
+  const chave = chaveTrecho(a, b);
+  const desde = new Date(Date.now() - CACHE_DIAS * 86400_000).toISOString();
+  const { data } = await db.from("rotas_cache").select("km,fonte").eq("chave", chave).gte("criado_em", desde).maybeSingle();
+  if (data && Number.isFinite(Number(data.km))) return { km: Number(data.km), fonte: data.fonte as FonteDistancia };
+  const r = await rotaEntre(a, b);
+  if (r.fonte !== "estimada") {
+    await db.from("rotas_cache").upsert({ chave, km: r.km, fonte: r.fonte, criado_em: new Date().toISOString() }).then(() => null, () => null);
+  }
+  return { km: r.km, fonte: r.fonte };
+}
+
 type PontoResolvido = { p: Ponto; novo: boolean };
 
 /**
@@ -110,7 +131,7 @@ export async function garantirDistancia(db: SupabaseClient, c: Corr, forcar = fa
   if (!pts) return null;
   const { o, d } = pts;
   const seq = [o, ...pts.paradas, d];
-  const pernas = await Promise.all(seq.slice(1).map((p, i) => rotaEntre(seq[i].p, p.p)));
+  const pernas = await Promise.all(seq.slice(1).map((p, i) => rotaComCache(db, seq[i].p, p.p)));
   const rota = { km: Math.round(pernas.reduce((s, r) => s + r.km, 0) * 100) / 100, fonte: fonteDoTotal(pernas.map((r) => r.fonte)) };
   const campos: Record<string, unknown> = { distancia_km: rota.km, distancia_fonte: rota.fonte, distancia_calculada_em: new Date().toISOString() };
   if (o.novo) Object.assign(campos, { origem_lat: o.p.lat, origem_lng: o.p.lng });
@@ -142,12 +163,26 @@ export async function otimizarDestinos(db: SupabaseClient, origem: Endereco, des
   const pts = ds as PontoResolvido[];
   const n = pts.length;
   const fontes: FonteDistancia[] = [];
-  const medir = async (a: Ponto, b: Ponto) => { const r = await rotaEntre(a, b); fontes.push(r.fonte); return r.km; };
+  const medir = async (a: Ponto, b: Ponto) => { const r = await rotaComCache(db, a, b); fontes.push(r.fonte); return r.km; };
   const daOrigem = await Promise.all(pts.map((p) => medir(o.p, p.p)));
   const entre: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
   await Promise.all(pts.flatMap((a, i) => pts.map(async (b, j) => { if (i !== j) entre[i][j] = await medir(a.p, b.p); })));
   const r = ordenarDestinos(daOrigem, entre);
   return { ordem: r.ordem, km: r.km, fonte: fonteDoTotal(fontes) };
+}
+
+/**
+ * Mede o km das corridas que acabaram de ir ao fornecedor, depois do envio das mensagens
+ * (a chamada aos mapas não atrasa o WhatsApp). Poucas por vez; o restante fica para a próxima chamada ou para o botão "Calcular km".
+ */
+export async function medirDistanciasPendentes(db: SupabaseClient, limite = 3): Promise<void> {
+  const desde = new Date(Date.now() - 6 * 3600_000).toISOString();
+  const { data, error } = await db.from("corridas")
+    .select("id,origem,destino,origem_lat,origem_lng,destino_lat,destino_lng,distancia_km,distancia_fonte,paradas")
+    .is("distancia_km", null).neq("status", "cancelada").gte("criado_em", desde).order("criado_em", { ascending: false }).limit(limite);
+  if (error || !data?.length) return;
+  const lugares = await lugaresCadastrados(db);
+  for (const c of data) await garantirDistancia(db, c as Corr, false, lugares).catch(() => null);
 }
 
 export { lugaresCadastrados };

@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
     // Identificação do aparelho pelo código de acesso de 6 dígitos (enviado só pelo planejamento ao fornecedor)
     if (acao === "entrar") {
-      if (!(await dentroDoLimite(`fornecedor-codigo:${ipDe(req)}`, 8, 900)) || !(await dentroDoLimite(`fornecedor-codigo:${corpo.token}`, 8, 900))) {
+      if (!(await dentroDoLimite(`fornecedor-codigo:${ipDe(req)}`, 8, 900)) || !(await dentroDoLimite(`fornecedor-codigo:${corpo.token}`, 8, 900, true))) {
         return erroJson("Muitas tentativas. Aguarde 15 minutos ou peça o código ao planejamento.", 429);
       }
       const codigo = String(corpo.codigo ?? "").replace(/\D/g, "");

@@ -1,4 +1,5 @@
 "use client";
+import { buscarPaginado } from "@/lib/exportacao-fornecedor";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -24,13 +25,21 @@ export default function ComparativoKm({ de, ate, fornecedorId, podeCalcular }: {
   const [rodando, setRodando] = useState(false);
 
   const carregar = async () => {
-    let q = supabase.from("corridas")
-      .select("id,protocolo,data_hora_prevista,origem,destino,fornecedor_id,distancia_km,distancia_fonte,preco_descricao,valor_tabela,preco_fornecedor_id,valor_informado,valor_faturado")
-      .in("status", ["concluida", "validada", "contestada"]).gte("data_hora_prevista", de).lt("data_hora_prevista", ate).order("data_hora_prevista").limit(5000);
-    if (fornecedorId) q = q.eq("fornecedor_id", fornecedorId);
-    const [c, f] = await Promise.all([q, supabase.from("fornecedores").select("id,nome,valor_km,bandeirada").order("nome")]);
-    if (c.error) { setErr(/distancia_fonte/.test(c.error.message) ? "Rode a migração supabase/016_km.sql no Supabase para ver o comparativo." : c.error.message); setCorridas([]); return; }
-    setErr(""); setCorridas((c.data ?? []) as CorridaKm[]); setFornecedores((f.data ?? []) as FornecedorKm[]);
+    // Em partes de 1.000 (o máximo que o Supabase devolve por consulta)
+    const pagina = (a: number, b: number) => {
+      let q = supabase.from("corridas")
+        .select("id,protocolo,data_hora_prevista,origem,destino,fornecedor_id,distancia_km,distancia_fonte,preco_descricao,valor_tabela,preco_fornecedor_id,valor_informado,valor_faturado")
+        .in("status", ["concluida", "validada", "contestada"]).gte("data_hora_prevista", de).lt("data_hora_prevista", ate);
+      if (fornecedorId) q = q.eq("fornecedor_id", fornecedorId);
+      return q.order("data_hora_prevista").order("id").range(a, b);
+    };
+    try {
+      const [c, f] = await Promise.all([buscarPaginado<CorridaKm>(pagina as any, 50000), supabase.from("fornecedores").select("id,nome,valor_km,bandeirada").order("nome")]);
+      setErr(""); setCorridas(c); setFornecedores((f.data ?? []) as FornecedorKm[]);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      setErr(/distancia_fonte/.test(m) ? "Rode a migração supabase/016_km.sql no Supabase para ver o comparativo." : m); setCorridas([]);
+    }
   };
   useEffect(() => { void carregar(); }, [de, ate, fornecedorId]);
 

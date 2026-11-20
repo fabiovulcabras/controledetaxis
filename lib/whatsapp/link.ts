@@ -63,5 +63,6 @@ export const msgNaoRealizadaSolicitante = (c: Corrida) =>
 export const msgConcluidaPlanejamento = (c: Corrida, valor: number, teto: number) =>
   `Corrida ${c.protocolo} concluída com valor ${brl(valor)}, acima do teto de ${brl(teto)}.`;
 
-export const msgLinkPedido = (nome: string, base: string, token: string) =>
-  `Olá, ${nome.split(" ")[0]}! Este é o seu link pessoal para pedir táxi:\n${base}/pedir/${token}\n\nSalve na tela inicial do celular. Não compartilhe: os pedidos feitos por ele saem no seu nome.`;
+export const msgLinkPedido = (nome: string, base: string, token: string, codigo?: string | null) =>
+  `Olá, ${nome.split(" ")[0]}! Este é o seu link pessoal para pedir táxi:\n${base}/pedir/${token}\n\nSalve na tela inicial do celular. Não compartilhe: os pedidos feitos por ele saem no seu nome.`
+  + (codigo ? `\nNa primeira vez em cada celular, digite o código: *${codigo}*` : "");

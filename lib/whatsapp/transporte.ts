@@ -5,6 +5,7 @@ import { payloadMeta } from "./meta";
 import { textoTemplate } from "./templates";
 import { enviarEmailsPlanejamento } from "../email";
 import { agendarPrazosPendentes } from "../qstash";
+import { medirDistanciasPendentes } from "../km-corrida";
 import { notificarPush } from "../push";
 import { enderecoPorCoordenadas } from "../endereco";
 import { enviarTextoEvolution, evolutionConfigurada, textoComOpcoes, traduzirResposta } from "./evolution";
@@ -79,6 +80,8 @@ export async function despacharSaidas(db: SupabaseClient, saidas: Saida[]): Prom
   await notificarPush(db, saidas).catch((err) => console.error("Push", err instanceof Error ? err.message : err));
   // Toda corrida que acabou de ir a um fornecedor ganha a tarefa de prazo no QStash
   await agendarPrazosPendentes(db);
+  // Km rodado (Google/OpenRouteService) só depois das mensagens enviadas
+  await medirDistanciasPendentes(db).catch((err) => console.error("Km", err instanceof Error ? err.message : err));
 }
 
 /** A Meta só aceita texto livre até 24 h depois da última mensagem da pessoa. */

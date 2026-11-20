@@ -24,9 +24,14 @@ export async function primeiroTelefonePlanejamento(repo: RepoSupabase): Promise<
 }
 
 /** Conta um uso no limite do banco. Se a migração 003 ainda não rodou, não bloqueia (só registra no log). */
-export async function dentroDoLimite(chave: string, limite: number, janelaSeg: number): Promise<boolean> {
+/**
+ * Conta uma tentativa e diz se ainda está dentro do limite. Se o contador falhar: libera (`fechado` = false)
+ * nas leituras comuns, para uma falha do banco não derrubar o app; bloqueia (`fechado` = true) nos logins e
+ * códigos de acesso, para ninguém testar senhas sem limite durante a falha.
+ */
+export async function dentroDoLimite(chave: string, limite: number, janelaSeg: number, fechado = false): Promise<boolean> {
   const { data, error } = await supabaseAdmin().rpc("fn_consumir_limite", { p_chave: chave, p_limite: limite, p_janela_seg: janelaSeg });
-  if (error) { console.error("Limite de uso indisponível", error.message); return true; }
+  if (error) { console.error("Limite de uso indisponível", error.message); return !fechado; }
   return data !== false;
 }
 

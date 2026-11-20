@@ -9,7 +9,7 @@ import NotificacoesPush from "@/components/NotificacoesPush";
 
 type Dados = {
   nome: string; locais?: LocalCadastrado[];
-  motivos: string[]; max_dias: number;
+  motivos: string[]; max_dias: number; retencao_meses?: number;
   frequentes?: { endereco: string; lat: number | null; lng: number | null }[];
   corridas: {
     id: string; protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string;
@@ -28,6 +28,8 @@ export default function Pedir() {
   const { token } = useParams<{ token: string }>();
   const [dados, setDados] = useState<Dados | null>(null);
   const [erroLink, setErroLink] = useState("");
+  // Link protegido por código (parâmetro pedido_exige_codigo): pede os 4 números na primeira vez neste aparelho
+  const [pedeCodigo, setPedeCodigo] = useState(false);
   const [form, setForm] = useState(vazio);
   // Outros destinos além do principal (até 4). O app escolhe a ordem de menor km e deixa o mais longe como final.
   const [extras, setExtras] = useState<{ texto: string; lat: number | null; lng: number | null; google: boolean }[]>([]);
@@ -43,7 +45,9 @@ export default function Pedir() {
   const carregar = async () => {
     const r = await fetch(`/api/pedido?token=${token}`, { cache: "no-store" });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 401 && j.codigo) { setPedeCodigo(true); return; }
     if (!r.ok) { setErroLink(j.erro ?? "Não foi possível abrir o link."); return; }
+    setPedeCodigo(false);
     setDados(j);
   };
   useEffect(() => { void carregar(); }, [token]);
@@ -111,6 +115,7 @@ export default function Pedir() {
     void carregar();
   };
 
+  if (pedeCodigo) return <Moldura><CodigoAcesso token={token} onLiberado={() => void carregar()} /></Moldura>;
   if (erroLink) return <Moldura><section className="card"><h2>Link indisponível</h2><p className="err">{erroLink}</p></section></Moldura>;
   if (!dados) return <Moldura><p className="empty">Carregando…</p></Moldura>;
 
@@ -232,6 +237,11 @@ export default function Pedir() {
           ))}
         </div>
       ) : <p className="empty">Nenhuma corrida ainda.</p>}
+      <p className="texto-fraco" style={{ fontSize: 12, margin: "18px 4px 8px" }}>
+        Privacidade: usamos seu nome, telefone e os endereços só para organizar as corridas da empresa e pagar os fornecedores.
+        {dados.retencao_meses ? ` Mensagens e localizações são apagadas depois de ${dados.retencao_meses} meses; o registro da corrida fica para a prestação de contas.` : ""}
+        {" "}Dúvidas ou pedido de exclusão: fale com o planejamento.
+      </p>
     </Moldura>
   );
 }
@@ -247,6 +257,31 @@ function Frequentes({ lista, atual, onEscolher, locais }: {
     <div className="chips-endereco" aria-label="Endereços usados recentemente">
       {opcoes.map((f) => <button key={f.endereco} type="button" title={f.endereco} onClick={() => onEscolher(f)}>{f.endereco.split(",")[0]}</button>)}
     </div>
+  );
+}
+
+/** Código de 4 números que libera este aparelho para o link de pedido. */
+function CodigoAcesso({ token, onLiberado }: { token: string; onLiberado: () => void }) {
+  const [codigo, setCodigo] = useState("");
+  const [erro, setErro] = useState("");
+  const [ocupado, setOcupado] = useState(false);
+  const enviar = async (e: React.FormEvent) => {
+    e.preventDefault(); setErro(""); setOcupado(true);
+    const r = await fetch("/api/pedido/entrar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, codigo }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    setOcupado(false);
+    if (!r?.ok) { setErro(j.erro ?? "Não foi possível conferir o código."); return; }
+    onLiberado();
+  };
+  return (
+    <form className="card" onSubmit={enviar} style={{ maxWidth: 420, margin: "0 auto", display: "grid", gap: 12 }}>
+      <h2 style={{ margin: 0 }}>Digite seu código</h2>
+      <p className="pagina-sub" style={{ margin: 0 }}>Na primeira vez neste celular, digite o código de 4 números que veio junto com o seu link.</p>
+      <input inputMode="numeric" autoComplete="one-time-code" maxLength={4} value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ""))} aria-label="Código de 4 números" style={{ fontSize: 24, letterSpacing: 8, textAlign: "center" }} autoFocus />
+      {erro && <p className="err" style={{ margin: 0 }}>{erro}</p>}
+      <button className="pri botao-grande" disabled={ocupado || codigo.length !== 4}>{ocupado ? "Conferindo…" : "Entrar"}</button>
+      <p className="texto-fraco" style={{ fontSize: 13, margin: 0 }}>Não tem o código? Peça ao setor de planejamento.</p>
+    </form>
   );
 }
 

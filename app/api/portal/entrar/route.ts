@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   if (token !== null && !tokenValido(token)) return erroJson("Link inválido.", 404);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return erroJson("Digite o e-mail cadastrado.");
   if (codigo.length !== 6) return erroJson("A senha é o código de acesso de 6 números.");
-  if (!(await dentroDoLimite(`portal-entrar-ip:${ipDe(req)}`, 10, 900)) || !(await dentroDoLimite(`portal-entrar:${email}`, 5, 900))) {
+  if (!(await dentroDoLimite(`portal-entrar-ip:${ipDe(req)}`, 10, 900, true)) || !(await dentroDoLimite(`portal-entrar:${email}`, 5, 900, true))) {
     return erroJson("Muitas tentativas. Aguarde 15 minutos ou peça o código ao planejamento.", 429);
   }
   try {

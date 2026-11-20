@@ -1,3 +1,4 @@
+import { precisaCodigo, respostaCodigo } from "@/lib/acesso-solicitante";
 import { trajetoTexto } from "@/lib/multidestino";
 import { otimizarDestinos } from "@/lib/km-corrida";
 import { MAX_DESTINOS } from "@/lib/multidestino";
@@ -37,6 +38,7 @@ export async function GET(req: Request) {
   try {
     const sol = await solicitantePorToken(token);
     if (!sol) return erroJson("Este link não vale mais. Peça um novo link ao setor de planejamento.", 404);
+    if (await precisaCodigo(req, sol as any)) return respostaCodigo();
     const repo = repoServidor();
     const db = supabaseAdmin();
     const base = urlApp(req);
@@ -51,6 +53,7 @@ export async function GET(req: Request) {
       locais,
       motivos: await repo.motivos(),
       max_dias: maxDias,
+      retencao_meses: await numero(repo, "retencao_meses", 12),
       frequentes: frequentes(lista),
       corridas: lista.slice(0, 10).map((c: any) => ({
         id: c.id, protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as keyof typeof STATUS]?.rotulo ?? c.status,
@@ -91,6 +94,7 @@ export async function POST(req: Request) {
   try {
     const sol = await solicitantePorToken(corpo.token);
     if (!sol) return erroJson("Este link não vale mais. Peça um novo link ao setor de planejamento.", 404);
+    if (await precisaCodigo(req, sol as any)) return respostaCodigo();
     const repo = repoServidor();
     const db = supabaseAdmin();
     const agora = new Date();
@@ -169,9 +173,7 @@ export async function POST(req: Request) {
       const campos = { distancia_km: rotaOtimizada.km, distancia_fonte: rotaOtimizada.fonte, distancia_calculada_em: new Date().toISOString() };
       const { error: eKm } = await db.from("corridas").update(campos).eq("id", corrida.id);
       if (!eKm) Object.assign(corrida, campos);
-    } else {
-      await repo.garantirDistancia?.(corrida).catch(() => null);
-    }
+    } // destino único: o km é medido depois do envio ao fornecedor (despacharSaidas)
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);
     const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);

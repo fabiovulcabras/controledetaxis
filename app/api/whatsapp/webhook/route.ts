@@ -1,3 +1,4 @@
+import { segredoConfere } from "@/lib/segredo";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { deveAtender, processarEntrada } from "@/lib/bot/motor";
@@ -10,8 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const ok = url.searchParams.get("hub.mode") === "subscribe"
-    && !!process.env.WHATSAPP_VERIFY_TOKEN
-    && url.searchParams.get("hub.verify_token") === process.env.WHATSAPP_VERIFY_TOKEN;
+    && segredoConfere(url.searchParams.get("hub.verify_token"), process.env.WHATSAPP_VERIFY_TOKEN);
   return ok ? new Response(url.searchParams.get("hub.challenge") ?? "", { status: 200 }) : new Response("Token de verificação inválido", { status: 403 });
 }
 

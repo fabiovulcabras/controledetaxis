@@ -90,9 +90,23 @@ export default function Cadastros() {
 }
 
 /** Envia ao solicitante o link pessoal de pedido, copia ou troca o link (o antigo deixa de valer). */
-function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido?: string | null }; recarregar: () => Promise<void> }) {
+function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string; telefone_whatsapp: string; token_pedido?: string | null; codigo_acesso?: string | null }; recarregar: () => Promise<void> }) {
   const { confirmar } = useRetorno();
   const [aberto, setAberto] = useState(false);
+  // Com pedido_exige_codigo = sim, o link pede o código de 4 números na primeira vez em cada aparelho
+  const [exigeCodigo, setExigeCodigo] = useState(false);
+  useEffect(() => {
+    if (!aberto) return;
+    supabase.from("parametros").select("valor").eq("chave", "pedido_exige_codigo").maybeSingle()
+      .then(({ data }) => setExigeCodigo(/^(sim|s|true|1)$/i.test(String(data?.valor ?? "").trim())));
+  }, [aberto]);
+  const novoCodigo = async () => {
+    if (!(await confirmar({ titulo: `Gerar novo código para ${pessoa.nome}?`, texto: "Os aparelhos já liberados precisam do código novo.", confirmar: "Gerar novo código" }))) return;
+    const codigo = String(Math.floor(Math.random() * 10000)).padStart(4, "0");
+    const { error } = await supabase.from("solicitantes").update({ codigo_acesso: codigo }).eq("id", pessoa.id);
+    setMsg(error ? (/codigo_acesso/.test(error.message) ? "Rode supabase/020_seguranca_desempenho.sql no Supabase." : error.message) : `Novo código: ${codigo}. Envie para a pessoa.`);
+    await recarregar();
+  };
   const [msg, setMsg] = useState("");
   const base = typeof window !== "undefined" ? window.location.origin : "";
   const url = `${base}/pedir/${pessoa.token_pedido}`;
@@ -119,12 +133,17 @@ function LinkPedido({ pessoa, recarregar }: { pessoa: { id: string; nome: string
               <legend>Link pessoal</legend>
               <p className="secao-ajuda">É por este link que {pessoa.nome.split(" ")[0]} pede táxi. Os pedidos saem no nome dela; quem tiver o link consegue pedir.</p>
               <input readOnly value={url} onFocus={(e) => e.target.select()} aria-label="Link de pedido" />
-              <a className="botao-whatsapp" href={linkWhatsApp(pessoa.telefone_whatsapp, msgLinkPedido(pessoa.nome, base, pessoa.token_pedido))} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(pessoa.telefone_whatsapp)} pelo WhatsApp</a>
+              <a className="botao-whatsapp" href={linkWhatsApp(pessoa.telefone_whatsapp, msgLinkPedido(pessoa.nome, base, pessoa.token_pedido, exigeCodigo ? pessoa.codigo_acesso : null))} target="_blank" rel="noopener noreferrer">Enviar para {formatarTelefone(pessoa.telefone_whatsapp)} pelo WhatsApp</a>
               <div className="row">
                 <button type="button" className="ghost" onClick={copiar}>Copiar link</button>
                 <a className="ghost" href={url} target="_blank" rel="noopener noreferrer">Abrir</a>
                 <button type="button" className="ghost botao-perigo" onClick={trocar}>Gerar novo link</button>
               </div>
+              {pessoa.codigo_acesso && (
+                <p className="secao-ajuda">Código de acesso: <strong className="protocolo">{pessoa.codigo_acesso}</strong>{" "}
+                  {exigeCodigo ? "— pedido na primeira vez em cada celular (vai junto na mensagem)." : "— só é pedido se o parâmetro pedido_exige_codigo estiver como sim."}{" "}
+                  <button type="button" className="atalho" onClick={novoCodigo}>Gerar novo código</button></p>
+              )}
               {msg && <p className="resumo-entrada">{msg}</p>}
             </fieldset>
             )}
