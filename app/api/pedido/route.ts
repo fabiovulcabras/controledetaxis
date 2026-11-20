@@ -3,7 +3,7 @@ import { trajetoTexto } from "@/lib/multidestino";
 import { otimizarDestinos } from "@/lib/km-corrida";
 import { MAX_DESTINOS } from "@/lib/multidestino";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { escolherFornecedor, despachar, numero } from "@/lib/bot/acoes";
+import { escolherFornecedor, despacharOuSegurar, numero } from "@/lib/bot/acoes";
 import { despacharSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 import { linkWhatsApp, msgNovaCorridaFornecedor, urlApp } from "@/lib/whatsapp/link";
 import { dentroDoLimite, ipDe, muitasTentativas, repoServidor, solicitantePorToken, tokenValido } from "@/lib/links-api";
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       retencao_meses: await numero(repo, "retencao_meses", 12),
       frequentes: frequentes(lista),
       corridas: lista.slice(0, 10).map((c: any) => ({
-        id: c.id, protocolo: c.protocolo, status: c.status, status_rotulo: STATUS[c.status as keyof typeof STATUS]?.rotulo ?? c.status,
+        id: c.id, protocolo: c.protocolo, status: c.status, status_rotulo: c.aprovacao_status === "pendente" && c.status === "solicitada" ? "Aguardando aprovação" : STATUS[c.status as keyof typeof STATUS]?.rotulo ?? c.status,
         quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: trajetoTexto(c), fornecedor: c.fornecedores?.nome ?? null,
         motorista: [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") || null,
         pode_cancelar: CANCELAVEIS_SOLICITANTE.includes(c.status),
@@ -179,7 +179,12 @@ export async function POST(req: Request) {
     } // destino único: o km é medido depois do envio ao fornecedor (despacharSaidas)
     const forn = await escolherFornecedor(repo, sol.fornecedor_padrao_id, corrida);
     if (!forn) return respostaPedido(req, corrida, sol.nome);
-    const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);
+    const { corrida: enviada, saidas, aprovacao } = await despacharOuSegurar(repo, corrida, forn, agora, "bot", `Enviada a ${forn.nome} (pedido pelo link, IP ${ipDe(req)})`);
+    if (aprovacao) {
+      await despacharSaidas(db, saidas);
+      return Response.json({ protocolo: enviada.protocolo, fornecedor: null, aprovacao,
+        aviso: `Antes de ir ao fornecedor, o pedido precisa da aprovação do planejamento (${aprovacao}). Você será avisado pelo WhatsApp.` });
+    }
 
     // WhatsApp sai sozinho só com envio automático (Meta ou Evolution); a notificação push sai sempre
     await despacharSaidas(db, saidas);

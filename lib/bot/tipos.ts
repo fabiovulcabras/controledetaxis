@@ -35,15 +35,21 @@ export type Corrida = {
   valor_tabela?: number | null; preco_descricao?: string | null; preco_fornecedor_id?: string | null; preco_calculado_em?: string | null;
   /** Motorista chegou ao embarque e chegada prometida no aceite; nota do passageiro (migração 021) */
   chegou_em?: string | null; chegada_prevista_em?: string | null; avaliacao?: number | null;
+  /** Aprovação do planejamento antes do envio (migração 022) */
+  aprovacao_status?: "pendente" | "aprovada" | "recusada" | null; aprovacao_motivo?: string | null;
+  /** Corrida juntada a outra (cancelada, aponta para a principal) e corrida gerada por uma recorrência */
+  juntada_em?: string | null; recorrente_id?: string | null;
   criado_em: string;
 };
 
 export type NovaCorrida = Pick<Corrida, "solicitante_id" | "tipo" | "data_hora_prevista" | "origem" | "destino" | "qtd_passageiros" | "motivo">
-  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio" | "observacoes" | "paradas">>;
+  & Partial<Pick<Corrida, "outros_passageiros" | "origem_lat" | "origem_lng" | "destino_lat" | "destino_lng" | "fornecedor_id" | "distancia_km" | "chave_envio" | "observacoes" | "paradas" | "recorrente_id">>;
 
 export type CamposCorrida = Partial<Pick<Corrida,
   "fornecedor_id" | "motorista" | "veiculo_placa" | "eta_minutos" | "valor_informado" | "prazo_resposta_em" |
-  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor" | "fornecedores_tentados" | "chegou_em" | "chegada_prevista_em">>;
+  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor" | "fornecedores_tentados" | "chegou_em" | "chegada_prevista_em" |
+  "aprovacao_status" | "aprovacao_motivo" | "data_hora_prevista" | "destino" | "destino_lat" | "destino_lng" | "paradas" |
+  "qtd_passageiros" | "outros_passageiros" | "distancia_km" | "preco_calculado_em" | "juntada_em">>;
 
 export type Conversa = { telefone: string; etapa: string; dados: Record<string, any>; atualizado_em: string };
 

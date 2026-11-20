@@ -8,6 +8,8 @@ import { competenciaAnterior, glosaItem } from "../lib/espelho-status";
 import { erroArquivo } from "../lib/extras";
 import { montarComparativo, valorPago, valorPorKm } from "../lib/comparativo-km";
 import { pontoCadastrado } from "../lib/km-corrida";
+import { proximaOcorrencia } from "../lib/recorrentes";
+import { destinosJuntados, sugestoesJuntar, type CorridaJuntar } from "../lib/juntar";
 import { describe, expect, it } from "vitest";
 import { processarEntrada, lerMotorista, contemPalavra } from "../lib/bot/motor";
 import { despachar, enviarLembretes, verificarPrazos, proximoFornecedor, tratarPrazoVencido, valorEsperado, verificarValor } from "../lib/bot/acoes";
@@ -61,7 +63,7 @@ describe("solicitação pelo WhatsApp", () => {
     const s = await c.enviar({ telefone: ANA, texto: "Bom dia" });
     expect(s).toHaveLength(1);
     expect(s[0].texto).toContain("Olá, Ana");
-    expect(s[0].opcoes?.map((o) => o.id)).toEqual(["pedir", "minhas", "cancelar"]);
+    expect(s[0].opcoes?.map((o) => o.id)).toEqual(["pedir", "minhas", "cancelar", "alterar"]);
   });
 
   it("fluxo completo gera protocolo, envia ao fornecedor e avisa o planejamento", async () => {
@@ -662,7 +664,7 @@ describe("palavra de ativação", () => {
     expect(await c.enviar({ telefone: ANA, texto: "oi, tudo bem?" })).toEqual([]);
     expect(await c.enviar({ telefone: "5511988887777", texto: "boa tarde" })).toEqual([]); // número desconhecido também
     const s = await c.enviar({ telefone: ANA, texto: "Preciso de um táxi" });
-    expect(s[0].opcoes?.map((o) => o.id)).toEqual(["pedir", "minhas", "cancelar"]);
+    expect(s[0].opcoes?.map((o) => o.id)).toEqual(["pedir", "minhas", "cancelar", "alterar"]);
     await c.enviar({ telefone: ANA, texto: "1" });
     await c.enviar({ telefone: ANA, botaoId: "agora" });
     await c.enviar({ telefone: ANA, botaoId: "origem_unidade" });
@@ -1335,5 +1337,93 @@ describe("vários destinos pelo WhatsApp", () => {
     await c.enviar({ telefone: ANA, botaoId: "confirmar" });
     expect(c.repo.corridas[0].destino).toBe("Rua B, 20");
     expect(c.repo.corridas[0].paradas?.map((p) => p.texto)).toEqual(["Rua A, 10"]);
+  });
+});
+
+describe("alterar corrida pelo WhatsApp", () => {
+  it("antes do aceite, troca horário e passageiros e avisa o fornecedor", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    const s1 = await c.enviar({ telefone: ANA, botaoId: "alterar" });
+    expect(s1[0].opcoes?.[0].id).toBe(`alterar:${c.repo.corridas[0].id}`);
+    await c.enviar({ telefone: ANA, botaoId: `alterar:${c.repo.corridas[0].id}` });
+    await c.enviar({ telefone: ANA, botaoId: "alt:horario" });
+    const s2 = await c.enviar({ telefone: ANA, texto: "amanhã 08:15" });
+    expect(formatarDataHora(c.repo.corridas[0].data_hora_prevista)).toContain("08:15");
+    expect(s2[0].texto).toContain("alterada: novo horário");
+    expect(para(s2, RTC)[0].texto).toContain("foi alterada");
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    await c.enviar({ telefone: ANA, botaoId: "alterar" });
+    await c.enviar({ telefone: ANA, texto: "1" });
+    await c.enviar({ telefone: ANA, botaoId: "alt:pax" });
+    await c.enviar({ telefone: ANA, texto: "3" });
+    expect(c.repo.corridas[0].qtd_passageiros).toBe(3);
+  });
+
+  it("depois do aceite, não deixa alterar", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 09h49" });
+    await c.enviar({ telefone: ANA, texto: "oi" });
+    const s = await c.enviar({ telefone: ANA, botaoId: "alterar" });
+    expect(s[s.length - 1].texto).toContain("ainda não aceitou");
+  });
+});
+
+describe("aprovação do planejamento", () => {
+  it("corrida fora do horário espera aprovação e não vai ao fornecedor", async () => {
+    const c = conversa();
+    c.repo.parametros["aprovacao_fora_horario"] = "06:00-10:00"; // o relógio dos testes está às 9h
+    const s = await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].status).toBe("solicitada");
+    expect(c.repo.corridas[0].aprovacao_status).toBe("pendente");
+    expect(c.repo.corridas[0].aprovacao_motivo).toContain("fora do expediente");
+    expect(ultima(s, ANA).texto).toContain("precisa da aprovação do planejamento");
+    expect(para(s, RTC)).toHaveLength(0);
+    expect(para(s, PLAN).length).toBeGreaterThan(0);
+  });
+
+  it("sem limite configurado, segue direto ao fornecedor", async () => {
+    const c = conversa();
+    await pedirTaxiCompleto(c);
+    expect(c.repo.corridas[0].status).toBe("enviada");
+    expect(c.repo.corridas[0].aprovacao_status ?? null).toBe(null);
+  });
+});
+
+describe("corridas recorrentes", () => {
+  const base = { dias_semana: [1, 2, 3, 4, 5], hora: "07:30", inicio: "2026-01-01", fim: null, ultima_data: null, pular_feriados: true };
+  it("próxima ocorrência dentro da antecedência", () => {
+    // sexta 23/10/2026 09:20: a próxima de seg a sex 07:30 é segunda 26/10 (fora de 24 h; dentro de 72 h)
+    expect(proximaOcorrencia(base, inicio, 24, new Set())).toBe(null);
+    expect(proximaOcorrencia(base, inicio, 72, new Set())?.data).toBe("2026-10-26");
+  });
+  it("pula feriado, a data já gerada e o fim", () => {
+    expect(proximaOcorrencia(base, inicio, 96, new Set(["2026-10-26"]))?.data).toBe("2026-10-27");
+    expect(proximaOcorrencia({ ...base, ultima_data: "2026-10-26" }, inicio, 96, new Set())?.data).toBe("2026-10-27");
+    expect(proximaOcorrencia({ ...base, fim: "2026-10-25" }, inicio, 96, new Set())).toBe(null);
+    expect(formatarDataHora(proximaOcorrencia(base, inicio, 72, new Set())!.quando)).toBe("26/10 07:30");
+  });
+});
+
+describe("juntar corridas", () => {
+  const c = (id: string, sol: string, min: number, extra: Partial<CorridaJuntar> = {}): CorridaJuntar => ({
+    id, protocolo: id, status: "enviada", data_hora_prevista: new Date(inicio.getTime() + min * 60_000).toISOString(),
+    origem: "CD Vulcabras", destino: `Destino ${id}`, qtd_passageiros: 1, solicitante_id: sol, ...extra });
+  it("sugere mesma origem, horário próximo, pessoas diferentes", () => {
+    const s = sugestoesJuntar([c("A", "s1", 0), c("B", "s2", 15), c("C", "s3", 60), c("D", "s1", 5)], 20);
+    expect(s.map((x) => [x.principal.id, x.outra.id])).toEqual([["A", "B"]]);
+  });
+  it("não sugere corrida aceita, passageiros demais nem origem diferente", () => {
+    expect(sugestoesJuntar([c("A", "s1", 0, { status: "aceita" }), c("B", "s2", 5)])).toHaveLength(0);
+    expect(sugestoesJuntar([c("A", "s1", 0, { qtd_passageiros: 3 }), c("B", "s2", 5, { qtd_passageiros: 2 })])).toHaveLength(0);
+    expect(sugestoesJuntar([c("A", "s1", 0), c("B", "s2", 5, { origem: "Rodoviária" })])).toHaveLength(0);
+    expect(sugestoesJuntar([c("A", "s1", 0, { origem_lat: -22.85, origem_lng: -46.31 }), c("B", "s2", 5, { origem: "Outro texto", origem_lat: -22.851, origem_lng: -46.3101 })])).toHaveLength(1);
+  });
+  it("destinos juntados sem repetir", () => {
+    expect(destinosJuntados({ ...c("A", "s1", 0), destino: "Centro" }, { ...c("B", "s2", 5), destino: "centro" }).map((d) => d.texto)).toEqual(["Centro"]);
   });
 });

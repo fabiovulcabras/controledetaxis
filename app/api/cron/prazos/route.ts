@@ -4,6 +4,7 @@ import { RepoSupabase } from "@/lib/bot/repo-supabase";
 import { enviarLembretes, verificarPrazos } from "@/lib/bot/acoes";
 import { despacharSaidas, enviarSaidas, envioAutomatico } from "@/lib/whatsapp/transporte";
 import { processarEspelhos } from "@/lib/espelho";
+import { gerarRecorrentes } from "@/lib/recorrentes";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export async function GET(req: Request) {
     const lembretes = await enviarLembretes(repo, agora);
     // Espelhos do mês: lembrete no 3º dia útil e aprovação tácita no fim do 5º
     lembretes.push(...await processarEspelhos(db, agora));
+    // Corridas recorrentes (Cadastros › Recorrentes) que entram na antecedência
+    lembretes.push(...await gerarRecorrentes(db, repo, agora).catch((err) => { console.error("Recorrentes", err); return []; }));
     if (oficial) await despacharSaidas(db, [...prazos, ...lembretes]);
     else {
       await enviarSaidas(db, [...prazos, ...lembretes], "simulado"); // fica no histórico de mensagens da corrida

@@ -4,7 +4,7 @@ import type { Conversa, Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Re
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
-import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, pedirAvaliacao, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
+import { alertar, alterarCorrida, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despacharOuSegurar, escolherFornecedor, numero, pedirAvaliacao, podeAlterar, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
 
 /**
  * Motor do bot: recebe uma mensagem e devolve as mensagens a enviar.
@@ -102,7 +102,9 @@ const MENU: Opcao[] = [
   { id: "pedir", titulo: "Pedir táxi" },
   { id: "minhas", titulo: "Minhas corridas" },
   { id: "cancelar", titulo: "Cancelar corrida" },
+  { id: "alterar", titulo: "Alterar corrida" },
 ];
+const OPCOES_ALTERAR: Opcao[] = [{ id: "alt:horario", titulo: "Horário" }, { id: "alt:destino", titulo: "Destino" }, { id: "alt:pax", titulo: "Passageiros" }];
 const OPCOES_QUANDO: Opcao[] = [{ id: "agora", titulo: "Agora" }, { id: "agendar", titulo: "Agendar" }];
 const OPCOES_PAX: Opcao[] = [{ id: "pax:1", titulo: "Só eu" }, { id: "pax:2", titulo: "2 pessoas" }, { id: "pax:3", titulo: "3 ou mais" }];
 const OPCOES_MAIS_DESTINO: Opcao[] = [{ id: "mais:nao", titulo: "Não, seguir" }, { id: "mais:sim", titulo: "Adicionar destino" }];
@@ -274,6 +276,12 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
         return [...saidas, pergunta(tel, "Suas últimas corridas:\n\n" + lista.map((c) =>
           `${c.protocolo} · ${formatarDataHora(c.data_hora_prevista)}\n${trajetoTexto(c)}\n${STATUS[c.status].rotulo}`).join("\n\n"), MENU)];
       }
+      if (op === "alterar") {
+        const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter(podeAlterar).slice(0, 10);
+        if (!abertas.length) return menu("Só dá para alterar corridas que o fornecedor ainda não aceitou, e você não tem nenhuma. Depois do aceite, cancele e peça de novo. O que você precisa?");
+        return ir("alterar_escolha", pergunta(tel, "Qual corrida você quer alterar?",
+          abertas.map((c) => ({ id: `alterar:${c.id}`, titulo: c.protocolo, descricao: `${formatarDataHora(c.data_hora_prevista)} · ${c.destino}`.slice(0, 72) })), "Ver corridas"));
+      }
       if (op === "cancelar") {
         const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((c) => CANCELAVEIS_SOLICITANTE.includes(c.status)).slice(0, 10);
         if (!abertas.length) return menu("Você não tem corridas em aberto. O que você precisa?");
@@ -382,6 +390,57 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
       return [...saidas, ...await registrar(sol, dados, repo, agora)];
     }
 
+    case "alterar_escolha": {
+      const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter(podeAlterar).slice(0, 10);
+      const op = escolha(e, abertas.map((x) => ({ id: `alterar:${x.id}`, titulo: x.protocolo })));
+      const id = op?.startsWith("alterar:") ? op.slice("alterar:".length) : null;
+      const c = id ? await repo.corrida(id) : e.texto ? await repo.corridaPorProtocolo(e.texto.toUpperCase()) : null;
+      if (!c || c.solicitante_id !== sol.id) return invalida(pergunta(tel, "Toque em uma das corridas da lista ou envie o protocolo (ex.: TX-2026-00123)."));
+      if (!podeAlterar(c)) return menu(`A corrida ${c.protocolo} já foi aceita pelo fornecedor e não pode mais ser alterada. Se precisar, cancele e peça de novo.`);
+      return ir("alterar_o_que", pergunta(tel, `O que você quer alterar na corrida ${c.protocolo}?`, OPCOES_ALTERAR), { corrida_id: c.id });
+    }
+
+    case "alterar_o_que": {
+      const op = escolha(e, OPCOES_ALTERAR);
+      if (!op) return invalida(pergunta(tel, "Escolha o que alterar.", OPCOES_ALTERAR));
+      if (op === "alt:horario") return ir("alterar_horario", pergunta(tel, "Qual o novo dia e horário? Exemplos: 24/10 07:30, amanhã 7h, hoje 18:40."));
+      if (op === "alt:pax") return ir("alterar_pax", pergunta(tel, "Quantos passageiros agora? Envie o número (1 a 15)."));
+      const c = await repo.corrida(String(dados.corrida_id));
+      if (c && (c.paradas ?? []).length) return menu(`A corrida ${c.protocolo} tem várias paradas: para mudar os destinos, cancele e peça de novo. O que você precisa?`);
+      return ir("alterar_destino", await pDestino());
+    }
+
+    case "alterar_horario":
+    case "alterar_destino":
+    case "alterar_pax": {
+      const c = await repo.corrida(String(dados.corrida_id));
+      if (!c || c.solicitante_id !== sol.id) return menu();
+      if (!podeAlterar(c)) return menu(`A corrida ${c.protocolo} já foi aceita pelo fornecedor e não pode mais ser alterada.`);
+      let campos: Parameters<typeof alterarCorrida>[2], descricao: string;
+      if (cv.etapa === "alterar_horario") {
+        const d = e.texto ? lerDataHora(e.texto, agora) : null;
+        if (!d) return invalida(pergunta(tel, "Não entendi. Envie o dia e a hora, por exemplo 24/10 07:30."));
+        const maxDias = await numero(repo, "antecedencia_maxima_dias", 30);
+        if (d.getTime() < agora.getTime() - 60_000) return invalida(pergunta(tel, "Essa data e hora já passaram. Informe uma data e hora futuras."));
+        if (d.getTime() > agora.getTime() + maxDias * 86400_000) return invalida(pergunta(tel, `Só é possível agendar até ${maxDias} dias à frente.`));
+        campos = { data_hora_prevista: d.toISOString() };
+        descricao = `novo horário ${formatarDataHora(d)}`;
+      } else if (cv.etapa === "alterar_pax") {
+        const n = Number((e.texto ?? "").replace(/\D/g, ""));
+        if (!Number.isInteger(n) || n < 1 || n > 15) return invalida(pergunta(tel, "Envie só o número de passageiros, de 1 a 15."));
+        campos = { qtd_passageiros: n };
+        descricao = `${n} passageiro(s)`;
+      } else {
+        const l = await lugar("destino");
+        if (!l) return invalida(await pDestino());
+        campos = { destino: l.texto, destino_lat: l.lat, destino_lng: l.lng };
+        descricao = `novo destino ${l.texto}`;
+      }
+      const r = await alterarCorrida(repo, c, campos, descricao, "bot");
+      await encerrarConversa(repo, tel, agora);
+      return [...saidas, { para: tel, corridaId: c.id, texto: `Corrida ${c.protocolo} alterada: ${descricao}.${r.saidas.length ? " O fornecedor foi avisado." : ""}` }, ...r.saidas];
+    }
+
     case "cancelar_escolha": {
       // Escolha pela lista (botão ou número da opção) ou pelo protocolo digitado
       const abertas = (await repo.corridasDoSolicitante(sol.id, 20)).filter((x) => CANCELAVEIS_SOLICITANTE.includes(x.status)).slice(0, 10);
@@ -456,7 +515,13 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
       ...await alertar(repo, corrida, "nenhum fornecedor ativo para enviar a corrida"),
     ];
   }
-  const { corrida: enviada, saidas } = await despachar(repo, corrida, forn, agora, "bot");
+  const { saidas, aprovacao } = await despacharOuSegurar(repo, corrida, forn, agora, "bot");
+  if (aprovacao) {
+    return [
+      { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada. Antes de ir ao fornecedor, ela precisa da aprovação do planejamento (${aprovacao}). Avisaremos assim que for aprovada.` },
+      ...saidas,
+    ];
+  }
   const resultado: Saida[] = [
     { para: tel, corridaId: corrida.id, texto: `Solicitação ${corrida.protocolo} registrada.${paradas.length ? ` Trajeto: ${trajetoTexto(corrida)}.` : ""} Enviamos ao fornecedor ${forn.nome} e avisaremos quando ele responder.` },
     ...saidas,

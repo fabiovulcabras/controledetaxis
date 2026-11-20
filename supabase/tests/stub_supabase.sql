@@ -10,4 +10,4 @@ grant usage on schema auth to anon, authenticated, service_role;
 create table auth.users (id uuid primary key, email text, raw_user_meta_data jsonb default '{}');
 -- O usuário logado vem da configuração t.uid (select set_config('t.uid', '<uuid>', false)).
 create function auth.uid() returns uuid language sql stable as $f$ select nullif(current_setting('t.uid', true), '')::uuid $f$;
-create function auth.jwt() returns jsonb language sql stable as $f$ select '{}'::jsonb $f$;
+create function auth.jwt() returns jsonb language sql stable as $f$ select coalesce(nullif(current_setting('t.jwt', true), ''), '{}')::jsonb $f$;

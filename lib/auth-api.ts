@@ -20,10 +20,23 @@ export async function usuarioDaRequisicao(req: Request, perfis: Perfil[]): Promi
     const { data: perfil, error: erroPerfil } = await db.from("profiles").select("id,nome,perfil,ativo").eq("id", data.user.id).maybeSingle();
     if (erroPerfil) return Response.json({ erro: `Não foi possível ler seu perfil: ${erroPerfil.message}` }, { status: 500 });
     if (!perfil?.ativo || !perfis.includes(perfil.perfil)) return Response.json({ erro: "Seu perfil não permite esta ação." }, { status: 403 });
+    // 2 fatores obrigatório (parâmetro mfa_obrigatorio): admin e planejamento só com a sessão confirmada (aal2)
+    if (perfil.perfil !== "consulta" && nivelDaSessao(token) !== "aal2") {
+      const { data: p } = await db.from("parametros").select("valor").eq("chave", "mfa_obrigatorio").maybeSingle();
+      if (String(p?.valor ?? "").trim().toLowerCase() === "sim") return Response.json({ erro: "Confirme o código do aplicativo autenticador para continuar." }, { status: 403 });
+    }
     return { id: perfil.id, nome: perfil.nome, perfil: perfil.perfil };
   } catch (err) {
     return Response.json({ erro: err instanceof Error ? err.message : "Erro ao validar o acesso." }, { status: 500 });
   }
+}
+
+/** Nível de garantia da sessão (aal1/aal2) no token já validado por getUser. */
+function nivelDaSessao(token: string): string {
+  try {
+    const parte = token.split(".")[1] ?? "";
+    return String(JSON.parse(Buffer.from(parte.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"))?.aal ?? "aal1");
+  } catch { return "aal1"; }
 }
 
 /** Mensagem de erro legível para devolver ao painel. */

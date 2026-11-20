@@ -33,6 +33,7 @@ type Corrida = {
   fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
   token_fornecedor?: string;
   chegou_em?: string | null; chegada_prevista_em?: string | null; avaliacao?: number | null; avaliacao_comentario?: string | null;
+  aprovacao_status?: string | null; aprovacao_motivo?: string | null; juntada_em?: string | null; recorrente_id?: string | null;
 };
 /** Linha da view corridas_lista (nomes já juntados). */
 type Linha = Omit<Corrida, "solicitantes" | "fornecedores"> & {
@@ -429,6 +430,11 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
               {c.chegou_em && <>{c.chegada_prevista_em ? " · " : ""}chegou {formatarDataHora(c.chegou_em)}
                 {c.chegada_prevista_em && (() => { const m = Math.round((new Date(c.chegou_em).getTime() - new Date(c.chegada_prevista_em).getTime()) / 60_000); return m > 0 ? <span className="negative"> ({m} min de atraso)</span> : <span className="positive"> (no horário)</span>; })()}</>}
             </dd></>}
+            {c.aprovacao_status && <><dt>Aprovação</dt><dd className={c.aprovacao_status === "pendente" ? "negative" : ""}>
+              {{ pendente: "Aguardando aprovação do planejamento (aprovar na Visão geral)", aprovada: "Aprovada", recusada: "Não aprovada" }[c.aprovacao_status] ?? c.aprovacao_status}
+              {c.aprovacao_motivo ? ` · ${c.aprovacao_motivo}` : ""}</dd></>}
+            {c.juntada_em && <><dt>Juntada</dt><dd>Passageiros levados na <a href={`/corridas?id=${c.juntada_em}`}>corrida principal</a></dd></>}
+            {c.recorrente_id && <><dt>Origem</dt><dd>Gerada por uma corrida recorrente (Cadastros › Recorrentes)</dd></>}
             {c.avaliacao != null && <><dt>Avaliação</dt><dd>{"★".repeat(c.avaliacao)}{"☆".repeat(5 - c.avaliacao)} ({c.avaliacao} de 5){c.avaliacao_comentario ? ` — “${c.avaliacao_comentario}”` : ""}</dd></>}
             <dt>{paradasDa(c).length ? "Km rodado (com paradas)" : "Distância (trajeto)"}</dt><dd>{c.distancia_km != null ? <>{fmtKm(c.distancia_km)}{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</> : <span className="texto-fraco">Ainda não calculada</span>}
               {podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={recalcularKm}>{c.distancia_km != null ? "Recalcular km" : "Calcular km"}</button>}</dd>

@@ -18,7 +18,7 @@ type Dados = {
     repetir?: Record<string, any>;
   }[];
 };
-type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string };
+type Resultado = { protocolo: string; fornecedor: string | null; whatsapp?: string; envio_automatico?: boolean; aviso?: string; aprovacao?: string };
 
 const vazio = { origem_google: false, destino_google: false, origem_lat: null as number | null, origem_lng: null as number | null, destino_lat: null as number | null, destino_lng: null as number | null, tipo: "imediata", data_hora: "", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", motivo_outro: "", observacoes: "" };
 const classeStatus = (s: string) => `tag st-${s}`;
@@ -130,7 +130,7 @@ export default function Pedir() {
         <section className="card">
           <span className="texto-fraco">Pedido registrado</span>
           <span className="protocolo-grande">{resultado.protocolo}</span>
-          {resultado.aviso ? <p className="err">{resultado.aviso}</p> : resultado.envio_automatico ? (
+          {resultado.aprovacao ? <p className="resumo-entrada">{resultado.aviso}</p> : resultado.aviso ? <p className="err">{resultado.aviso}</p> : resultado.envio_automatico ? (
             <p className="ok">O fornecedor {resultado.fornecedor} já recebeu a solicitação pelo WhatsApp. Você será avisado quando ele responder.</p>
           ) : (
             <>

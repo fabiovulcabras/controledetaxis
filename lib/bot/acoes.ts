@@ -2,7 +2,7 @@ import { trajetoTexto } from "../multidestino";
 import { normalizarTelefone } from "../telefone";
 import type { Corrida, Fornecedor, Repo, Saida } from "./tipos";
 import type { OrigemEvento } from "../status";
-import { brl, formatarDataHora, formatarHora } from "../datas";
+import { brl, formatarDataHora, formatarHora, partesSP } from "../datas";
 import { textoTemplate } from "../whatsapp/templates";
 
 const URL_PAINEL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
@@ -41,6 +41,62 @@ export async function avisarSolicitante(repo: Repo, c: Corrida, texto: string, r
   const sol = await repo.solicitante(c.solicitante_id);
   if (!sol) return [];
   return [{ para: sol.telefone_whatsapp, texto, corridaId: c.id, template: { nome: "atualizacao_corrida_solicitante", parametros: [c.protocolo, resumo] } }];
+}
+
+/** Status em que a corrida ainda não foi aceita: o solicitante pode alterar e o planejamento pode juntar. */
+export const ALTERAVEIS = ["solicitada", "enviada", "sem_resposta", "recusada"] as const;
+export const podeAlterar = (c: Pick<Corrida, "status">) => (ALTERAVEIS as readonly string[]).includes(c.status);
+
+const minutosDoDia = (hhmm: string) => { const m = hhmm.trim().match(/^(\d{1,2})[:h](\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+
+/**
+ * Por que a corrida precisa da aprovação do planejamento antes de ir ao fornecedor (parâmetros aprovacao_*), ou null.
+ * Valor: tabela do fornecedor escolhido. Km: o já calculado (vários destinos) ou medido agora. Horário: intervalo "22:00-06:00".
+ */
+export async function motivoAprovacao(repo: Repo, c: Corrida, forn: Fornecedor | null): Promise<string | null> {
+  const motivos: string[] = [];
+  const limiteValor = await numero(repo, "aprovacao_valor_acima", 0);
+  if (limiteValor > 0 && forn) {
+    const cot = await repo.cotacao(forn.id, c).catch(() => null);
+    if (cot?.valor != null && cot.valor > limiteValor) motivos.push(`valor de tabela ${brl(cot.valor)} acima de ${brl(limiteValor)}`);
+  }
+  const limiteKm = await numero(repo, "aprovacao_km_acima", 0);
+  if (limiteKm > 0) {
+    if (c.distancia_km == null) await repo.garantirDistancia?.(c).catch(() => null);
+    if (c.distancia_km != null && Number(c.distancia_km) > limiteKm) motivos.push(`${Number(c.distancia_km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} km, acima de ${limiteKm} km`);
+  }
+  const faixa = String((await repo.parametro("aprovacao_fora_horario")) ?? "").split("-");
+  const ini = faixa.length === 2 ? minutosDoDia(faixa[0]) : null, fim = faixa.length === 2 ? minutosDoDia(faixa[1]) : null;
+  if (ini != null && fim != null && ini !== fim) {
+    const p = partesSP(new Date(c.data_hora_prevista));
+    const m = p.hora * 60 + p.minuto;
+    if (ini < fim ? m >= ini && m < fim : m >= ini || m < fim) motivos.push(`horário fora do expediente (${faixa[0].trim()} às ${faixa[1].trim()})`);
+  }
+  return motivos.length ? motivos.join("; ") : null;
+}
+
+/** Envia ao fornecedor ou, se a corrida precisa de aprovação, segura (solicitada, aprovação pendente) e avisa o planejamento. */
+export async function despacharOuSegurar(repo: Repo, c: Corrida, forn: Fornecedor, agora: Date, origem: OrigemEvento, obs?: string):
+  Promise<{ corrida: Corrida; saidas: Saida[]; aprovacao: string | null }> {
+  const motivo = await motivoAprovacao(repo, c, forn);
+  if (!motivo) return { ...(await despachar(repo, c, forn, agora, origem, obs)), aprovacao: null };
+  const atual = await repo.mudarStatus(c.id, null, origem, `Aguardando aprovação do planejamento: ${motivo}`, { aprovacao_status: "pendente", aprovacao_motivo: motivo });
+  return { corrida: atual, saidas: await alertar(repo, atual, `aguardando aprovação (${motivo})`), aprovacao: motivo };
+}
+
+type CamposAlteracao = Partial<Pick<Corrida, "data_hora_prevista" | "destino" | "destino_lat" | "destino_lng" | "paradas" | "qtd_passageiros" | "outros_passageiros">>;
+
+/** Alteração antes do aceite: grava, zera km e tabela (recalculados) e avisa o fornecedor que já recebeu a corrida. */
+export async function alterarCorrida(repo: Repo, c: Corrida, campos: CamposAlteracao, descricao: string, origem: OrigemEvento): Promise<{ corrida: Corrida; saidas: Saida[] }> {
+  const atual = await repo.mudarStatus(c.id, null, origem, `Alterada: ${descricao}`, { ...campos, distancia_km: null, preco_calculado_em: null });
+  await repo.precoTabela(atual).catch(() => null);
+  const saidas: Saida[] = [];
+  if (atual.fornecedor_id && ["enviada", "sem_resposta"].includes(atual.status)) {
+    const forn = await repo.fornecedor(atual.fornecedor_id);
+    if (forn) saidas.push({ para: forn.telefone_whatsapp, corridaId: atual.id,
+      texto: `Atenção: a corrida ${atual.protocolo} foi alterada (${descricao}).\nAgora: ${formatarDataHora(atual.data_hora_prevista)}, ${atual.origem} → ${trajetoTexto(atual)}, ${atual.qtd_passageiros} passageiro(s).` });
+  }
+  return { corrida: atual, saidas };
 }
 
 /**

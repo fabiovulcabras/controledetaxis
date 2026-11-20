@@ -10,9 +10,9 @@ import { EXCECOES } from "@/lib/status";
  * Funciona sem a API do WhatsApp; basta o painel estar aberto em alguma aba.
  */
 /** Outras pendências do planejamento (fora das exceções de corrida). Sem as migrações 015/021, ficam em zero. */
-export type Pendencias = { extras: number; contestados: number; espelhosVencendo: number; notasBaixas: number };
+export type Pendencias = { extras: number; contestados: number; espelhosVencendo: number; notasBaixas: number; aprovacoes: number };
 type Ctx = { excecoes: number; pendencias: Pendencias; permissao: string; pedirPermissao: () => Promise<void> };
-const SEM_PENDENCIAS: Pendencias = { extras: 0, contestados: 0, espelhosVencendo: 0, notasBaixas: 0 };
+const SEM_PENDENCIAS: Pendencias = { extras: 0, contestados: 0, espelhosVencendo: 0, notasBaixas: 0, aprovacoes: 0 };
 const AlertasCtx = createContext<Ctx>({ excecoes: 0, pendencias: SEM_PENDENCIAS, permissao: "default", pedirPermissao: async () => {} });
 export const useAlertas = () => useContext(AlertasCtx);
 
@@ -41,15 +41,16 @@ export function AlertasProvider({ ativo, children }: { ativo: boolean; children:
     const amanha = new Date(Date.now() + 24 * 3600_000).toISOString();
     const semana = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
     const conta = (q: PromiseLike<{ count: number | null; error: unknown }>) => Promise.resolve(q).then((r) => (r.error ? 0 : r.count ?? 0), () => 0);
-    const [count, extras, contestados, vencendo, notas] = await Promise.all([
+    const [count, extras, contestados, vencendo, notas, aprovacoes] = await Promise.all([
       conta(supabase.from("corridas").select("id", { count: "exact", head: true }).in("status", EXCECOES)),
       conta(supabase.from("corrida_extras").select("id", { count: "exact", head: true }).eq("status", "pendente")),
       conta(supabase.from("espelhos").select("id", { count: "exact", head: true }).eq("status", "contestado")),
       conta(supabase.from("espelhos").select("id", { count: "exact", head: true }).eq("status", "aguardando").lte("prazo_em", amanha)),
       conta(supabase.from("corridas").select("id", { count: "exact", head: true }).lte("avaliacao", 2).gte("avaliada_em", semana)),
+      conta(supabase.from("corridas").select("id", { count: "exact", head: true }).eq("status", "solicitada").eq("aprovacao_status", "pendente")),
     ]);
-    setPendencias({ extras, contestados, espelhosVencendo: vencendo, notasBaixas: notas });
-    const n = count + extras + contestados;
+    setPendencias({ extras, contestados, espelhosVencendo: vencendo, notasBaixas: notas, aprovacoes });
+    const n = count + extras + contestados + aprovacoes;
     if (anterior.current != null && n > anterior.current) {
       bip();
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {

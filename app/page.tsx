@@ -15,6 +15,7 @@ import { EXCECOES, type StatusCorrida } from "@/lib/status";
 import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
 import NotificacoesPush from "@/components/NotificacoesPush";
 import { useAlertas } from "@/components/AlertasPlanejamento";
+import AprovacoesJuntar from "@/components/AprovacoesJuntar";
 
 type Linha = {
   id: string; protocolo: string; status: StatusCorrida; data_hora_prevista: string; destino: string; prazo_resposta_em: string | null;
@@ -94,6 +95,8 @@ export default function VisaoGeral() {
           </ul>
         </section>
       )}
+
+      {planejamento && <AprovacoesJuntar />}
 
       <div className="grade-2">
         <div>

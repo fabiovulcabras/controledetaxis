@@ -11,12 +11,13 @@ import { linkWhatsApp, msgLinkPedido } from "@/lib/whatsapp/link";
 import { useRetorno } from "@/components/Retorno";
 import { baixarXlsx } from "@/lib/xlsx";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
+import { textoDias } from "@/lib/recorrentes";
 import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "feriados" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "recorrentes" | "feriados" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
   ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"],
-  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["feriados", "Feriados"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
+  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["recorrentes", "Corridas recorrentes"], ["feriados", "Feriados"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
 export default function Cadastros() {
@@ -83,6 +84,7 @@ export default function Cadastros() {
           { key: "ordem", label: "Ordem", type: "number", ajuda: "Menor aparece primeiro. No WhatsApp, até 3 motivos viram botões; com mais, viram uma lista (até 10)." },
         ]} />}
 
+      {aba === "recorrentes" && <Recorrentes />}
       {aba === "feriados" && <Feriados />}
       {aba === "parametros" && <Parametros />}
       {aba === "usuarios" && <Usuarios />}
@@ -447,6 +449,109 @@ function Feriados() {
           ))}</tbody>
         </table></div>
         {!rows.length && !err && <p className="empty">Nenhum feriado cadastrado.</p>}
+      </section>
+    </>
+  );
+}
+
+type Recorrente = {
+  id: string; solicitante_id: string; dias_semana: number[]; hora: string; origem: string; destino: string; qtd_passageiros: number;
+  outros_passageiros: string | null; motivo: string; observacoes: string | null; pular_feriados: boolean; fim: string | null; ultima_data: string | null; ativo: boolean;
+  solicitantes?: { nome: string } | null;
+};
+const DIAS_SEMANA: [number, string][] = [[1, "Seg"], [2, "Ter"], [3, "Qua"], [4, "Qui"], [5, "Sex"], [6, "Sáb"], [7, "Dom"]];
+const RECORRENTE_VAZIA = { solicitante_id: "", dias: [1, 2, 3, 4, 5], hora: "07:00", origem: "", destino: "", qtd_passageiros: "1", outros_passageiros: "", motivo: "", observacoes: "", pular_feriados: true, fim: "" };
+
+/** Corridas que se repetem (ex.: turno de seg a sex às 7h): o agendador gera cada uma com a antecedência do parâmetro e envia ao fornecedor. */
+function Recorrentes() {
+  const { avisar, confirmar } = useRetorno();
+  const [rows, setRows] = useState<Recorrente[]>([]);
+  const [pessoas, setPessoas] = useState<{ id: string; nome: string }[]>([]);
+  const [motivos, setMotivos] = useState<string[]>([]);
+  const [form, setForm] = useState(RECORRENTE_VAZIA);
+  const [aberto, setAberto] = useState(false);
+  const [err, setErr] = useState("");
+  const carregar = async () => {
+    const [r, s, m] = await Promise.all([
+      supabase.from("corridas_recorrentes").select("*, solicitantes(nome)").order("hora"),
+      supabase.from("solicitantes").select("id,nome").eq("ativo", true).order("nome"),
+      supabase.from("motivos").select("nome").eq("ativo", true).order("ordem"),
+    ]);
+    setErr(r.error ? (/corridas_recorrentes/.test(r.error.message) ? "Rode supabase/022_aprovacao_recorrentes.sql no Supabase para cadastrar corridas recorrentes." : r.error.message) : "");
+    setRows((r.data ?? []) as Recorrente[]); setPessoas(s.data ?? []); setMotivos((m.data ?? []).map((x: { nome: string }) => x.nome));
+  };
+  useEffect(() => { void carregar(); }, []);
+  const campo = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [k]: e.target.value });
+  const salvar = async (e: React.FormEvent) => {
+    e.preventDefault(); setErr("");
+    if (!form.solicitante_id || !form.dias.length || !form.hora || form.origem.trim().length < 4 || form.destino.trim().length < 4 || !form.motivo.trim()) {
+      setErr("Preencha pessoa, dias, horário, origem, destino e motivo."); return;
+    }
+    const { data: u } = await supabase.auth.getUser();
+    const { error } = await supabase.from("corridas_recorrentes").insert({
+      solicitante_id: form.solicitante_id, dias_semana: form.dias, hora: form.hora, origem: form.origem.trim(), destino: form.destino.trim(),
+      qtd_passageiros: Math.max(1, Math.min(15, Number(form.qtd_passageiros) || 1)), outros_passageiros: form.outros_passageiros.trim() || null,
+      motivo: form.motivo.trim(), observacoes: form.observacoes.trim() || null, pular_feriados: form.pular_feriados, fim: form.fim || null, criado_por: u.user?.id ?? null,
+    });
+    if (error) { setErr(error.message); return; }
+    avisar("Corrida recorrente salva. O agendador gera cada corrida com a antecedência do parâmetro recorrente_antecedencia_horas.");
+    setForm(RECORRENTE_VAZIA); setAberto(false); await carregar();
+  };
+  const alternar = async (r: Recorrente) => {
+    const { error } = await supabase.from("corridas_recorrentes").update({ ativo: !r.ativo }).eq("id", r.id);
+    if (error) setErr(error.message); else await carregar();
+  };
+  const excluir = async (r: Recorrente) => {
+    if (!(await confirmar({ titulo: "Excluir esta corrida recorrente?", texto: "As corridas já geradas continuam; as próximas não serão mais criadas.", confirmar: "Excluir", perigo: true }))) return;
+    const { error } = await supabase.from("corridas_recorrentes").delete().eq("id", r.id);
+    if (error) setErr(error.message); else { avisar("Excluída."); await carregar(); }
+  };
+  return (
+    <>
+      <TopoPagina titulo="Corridas recorrentes" subtitulo="Trajetos fixos (turno, rota de visita): cada corrida é criada sozinha antes do horário e enviada ao fornecedor. Feriados podem ser pulados.">
+        <button type="button" className="pri" onClick={() => setAberto(!aberto)}>{aberto ? "Fechar" : "Nova recorrente"}</button>
+      </TopoPagina>
+      {err && <div className="err">{err}</div>}
+      {aberto && (
+        <form className="card" onSubmit={salvar}>
+          <div className="form-mov-grade">
+            <Campo rotulo="Pessoa autorizada" obrigatorio><select value={form.solicitante_id} onChange={campo("solicitante_id")}><option value="">Escolha</option>{pessoas.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></Campo>
+            <Campo rotulo="Horário" obrigatorio><input type="time" value={form.hora} onChange={campo("hora")} /></Campo>
+            <Campo rotulo="Dias da semana" obrigatorio largo>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>{DIAS_SEMANA.map(([n, r]) => (
+                <label key={n} className="row" style={{ gap: 4 }}><input type="checkbox" checked={form.dias.includes(n)}
+                  onChange={(e) => setForm({ ...form, dias: e.target.checked ? [...form.dias, n].sort() : form.dias.filter((d) => d !== n) })} />{r}</label>
+              ))}</div>
+            </Campo>
+            <Campo rotulo="Origem" obrigatorio largo><input value={form.origem} onChange={campo("origem")} placeholder="Rua, número, bairro, cidade" /></Campo>
+            <Campo rotulo="Destino" obrigatorio largo><input value={form.destino} onChange={campo("destino")} placeholder="Rua, número, bairro, cidade" /></Campo>
+            <Campo rotulo="Passageiros"><input type="number" min={1} max={15} value={form.qtd_passageiros} onChange={campo("qtd_passageiros")} /></Campo>
+            <Campo rotulo="Outros passageiros"><input value={form.outros_passageiros} onChange={campo("outros_passageiros")} placeholder="Nomes (opcional)" /></Campo>
+            <Campo rotulo="Motivo" obrigatorio><input list="motivos-recorrentes" value={form.motivo} onChange={campo("motivo")} /><datalist id="motivos-recorrentes">{motivos.map((m) => <option key={m} value={m} />)}</datalist></Campo>
+            <Campo rotulo="Termina em" ajuda="Vazio = sem data para acabar."><input type="date" value={form.fim} onChange={campo("fim")} /></Campo>
+            <Campo rotulo="Observações para o fornecedor" largo><input value={form.observacoes} onChange={campo("observacoes")} /></Campo>
+            <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={form.pular_feriados} onChange={(e) => setForm({ ...form, pular_feriados: e.target.checked })} /> Não gerar em feriados (Cadastros › Feriados)</label>
+          </div>
+          <div className="row" style={{ marginTop: 12 }}><button className="pri">Salvar</button></div>
+        </form>
+      )}
+      <section className="card">
+        <div className="tw"><table>
+          <thead><tr><th>Pessoa</th><th>Quando</th><th>Trajeto</th><th className="num">Passageiros</th><th>Última gerada</th><th /></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={r.id} className={r.ativo ? "" : "texto-fraco"}>
+              <td>{r.solicitantes?.nome ?? "—"}<small className="bloco texto-fraco">{r.motivo}</small></td>
+              <td>{textoDias(r.dias_semana)} às {r.hora.slice(0, 5)}{r.fim ? <small className="bloco texto-fraco">até {r.fim.split("-").reverse().join("/")}</small> : null}</td>
+              <td>{r.origem} → {r.destino}</td><td className="num">{r.qtd_passageiros}</td>
+              <td>{r.ultima_data ? r.ultima_data.split("-").reverse().join("/") : "—"}</td>
+              <td className="num"><div className="row" style={{ gap: 6, justifyContent: "flex-end" }}>
+                <button type="button" className="ghost" onClick={() => void alternar(r)}>{r.ativo ? "Pausar" : "Reativar"}</button>
+                <button type="button" className="ghost botao-perigo" onClick={() => void excluir(r)}>Excluir</button>
+              </div></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+        {!rows.length && !err && <p className="empty">Nenhuma corrida recorrente.</p>}
       </section>
     </>
   );
