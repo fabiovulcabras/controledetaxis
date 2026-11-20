@@ -44,6 +44,25 @@ export async function avisarSolicitante(repo: Repo, c: Corrida, texto: string, r
 }
 
 /**
+ * Depois da corrida concluída: pergunta ao passageiro a nota de 1 a 5 (parâmetro avaliacao_ativa, padrão sim).
+ * Os botões levam o id da corrida, então valem mesmo depois; se a pessoa não estiver no meio de outra conversa,
+ * a resposta só com o número (1 a 5) também vale por 24 h.
+ */
+export async function pedirAvaliacao(repo: Repo, c: Corrida, agora: Date): Promise<Saida[]> {
+  if (!repo.avaliarCorrida || String((await repo.parametro("avaliacao_ativa")) ?? "sim").trim().toLowerCase() === "nao") return [];
+  const sol = await repo.solicitante(c.solicitante_id);
+  if (!sol?.telefone_whatsapp) return [];
+  const conv = await repo.conversa(sol.telefone_whatsapp);
+  if (!conv || ["menu", "avaliar", "avaliar_comentario"].includes(conv.etapa)) await repo.salvarConversa(sol.telefone_whatsapp, "avaliar", { corrida_id: c.id }, agora);
+  return [{
+    para: sol.telefone_whatsapp, corridaId: c.id,
+    texto: `Como foi a corrida ${c.protocolo}${c.motorista ? ` com ${c.motorista.split(" ")[0]}` : ""}? Dê uma nota de 1 (ruim) a 5 (ótima).`,
+    opcoes: [1, 2, 3, 4, 5].map((n) => ({ id: `NOTA:${c.id}:${n}`, titulo: `${n} – ${["", "Ruim", "Fraca", "Regular", "Boa", "Ótima"][n]}` })),
+    rotuloLista: "Dar nota",
+  }];
+}
+
+/**
  * Fila de fornecedores para o trecho, do mais barato ao mais caro pela tabela de preços de cada um.
  * Quem tem tabela sem preço para o trecho não atende e fica fora. Quem não tem tabela atende com preço desconhecido
  * e vai para o fim. Empate de preço: o fornecedor padrão da pessoa; depois a ordem antiga de cadastro e o nome.

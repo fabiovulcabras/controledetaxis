@@ -63,6 +63,17 @@ export class RepoSupabase implements Repo {
   async roteiro(c: Corrida): Promise<string | null> {
     return (await roteiroDaCorrida(this.db, c))?.texto ?? null;
   }
+  async avaliarCorrida(id: string, nota: number | null, comentario?: string | null): Promise<boolean> {
+    if (nota == null) {
+      const texto = String(comentario ?? "").trim().slice(0, 500);
+      if (!texto) return false;
+      const { data, error } = await this.db.from("corridas").update({ avaliacao_comentario: texto }).eq("id", id).not("avaliacao", "is", null).is("avaliacao_comentario", null).select("id");
+      return !error && !!data?.length;
+    }
+    const { data, error } = await this.db.rpc("fn_avaliar_corrida", { p_corrida: id, p_nota: nota, p_comentario: comentario ?? null });
+    if (error) { console.error("Avaliar corrida (rodou a migração 021?)", error.message); return false; }
+    return data === true;
+  }
   async garantirDistancia(c: Corrida): Promise<void> {
     await garantirDistancia(this.db, c);
   }

@@ -13,10 +13,10 @@ import { baixarXlsx } from "@/lib/xlsx";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "feriados" | "parametros" | "usuarios";
 const ABAS: [Aba, string][] = [
   ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"],
-  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
+  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["feriados", "Feriados"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
 ];
 
 export default function Cadastros() {
@@ -83,6 +83,7 @@ export default function Cadastros() {
           { key: "ordem", label: "Ordem", type: "number", ajuda: "Menor aparece primeiro. No WhatsApp, até 3 motivos viram botões; com mais, viram uma lista (até 10)." },
         ]} />}
 
+      {aba === "feriados" && <Feriados />}
       {aba === "parametros" && <Parametros />}
       {aba === "usuarios" && <Usuarios />}
     </>
@@ -398,6 +399,55 @@ function Usuarios() {
           </form>
         </PainelLateral>
       )}
+    </>
+  );
+}
+
+/** Feriados: não contam como dia útil nos prazos do espelho (5 dias úteis para responder; lembrete no 3º). */
+function Feriados() {
+  const { avisar, confirmar } = useRetorno();
+  const [rows, setRows] = useState<{ data: string; nome: string }[]>([]);
+  const [nova, setNova] = useState({ data: "", nome: "" });
+  const [err, setErr] = useState("");
+  const carregar = async () => {
+    const { data, error } = await supabase.from("feriados").select("data,nome").gte("data", `${new Date().getFullYear() - 1}-01-01`).order("data");
+    setErr(error ? (/feriados/.test(error.message) ? "Rode supabase/021_qualidade.sql no Supabase para cadastrar feriados." : error.message) : "");
+    setRows(data ?? []);
+  };
+  useEffect(() => { void carregar(); }, []);
+  const incluir = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nova.data || nova.nome.trim().length < 3) { setErr("Informe a data e o nome do feriado."); return; }
+    const { error } = await supabase.from("feriados").upsert({ data: nova.data, nome: nova.nome.trim() });
+    if (error) { setErr(error.message); return; }
+    avisar("Feriado salvo."); setNova({ data: "", nome: "" }); await carregar();
+  };
+  const remover = async (f: { data: string; nome: string }) => {
+    if (!(await confirmar({ titulo: `Remover ${f.nome}?`, texto: "O dia volta a contar como dia útil nos prazos.", confirmar: "Remover", perigo: true }))) return;
+    const { error } = await supabase.from("feriados").delete().eq("data", f.data);
+    if (error) setErr(error.message); else { avisar("Feriado removido."); await carregar(); }
+  };
+  const dataBr = (d: string) => d.split("-").reverse().join("/");
+  const semana = (d: string) => ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][new Date(`${d}T12:00:00`).getDay()];
+  return (
+    <>
+      <TopoPagina titulo="Feriados" subtitulo="Não contam como dia útil nos prazos do espelho mensal. Os nacionais já vêm cadastrados; inclua os municipais (Extrema) e as pontes." />
+      {err && <div className="err">{err}</div>}
+      <section className="card">
+        <form className="row" onSubmit={incluir} style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+          <Campo rotulo="Data"><input type="date" value={nova.data} onChange={(e) => setNova({ ...nova, data: e.target.value })} /></Campo>
+          <Campo rotulo="Nome"><input value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="Aniversário de Extrema" /></Campo>
+          <button className="pri">Incluir</button>
+        </form>
+        <div className="tw"><table className="tabela-compacta">
+          <thead><tr><th>Data</th><th>Feriado</th><th /></tr></thead>
+          <tbody>{rows.map((f) => (
+            <tr key={f.data}><td>{dataBr(f.data)} <span className="texto-fraco">({semana(f.data)})</span></td><td>{f.nome}</td>
+              <td className="num"><button type="button" className="ghost botao-perigo" onClick={() => void remover(f)}>Remover</button></td></tr>
+          ))}</tbody>
+        </table></div>
+        {!rows.length && !err && <p className="empty">Nenhum feriado cadastrado.</p>}
+      </section>
     </>
   );
 }

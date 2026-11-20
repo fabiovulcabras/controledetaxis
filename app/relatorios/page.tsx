@@ -24,6 +24,11 @@ type Resumo = {
   por_dia: { dia: string; qtd: number; valor: number }[];
   por_solicitante: Grupo[]; por_fornecedor: Fornecedor[];
 };
+type Qualidade = {
+  fornecedores: { id: string; nome: string; feitas: number; medidas: number; no_horario: number; atraso_medio_min: number | null; avaliacoes: number; nota_media: number | null; notas_baixas: number; canceladas_fornecedor: number; contestacoes: number }[];
+  por_setor: { setor: string; pessoas: number; corridas: number; canceladas: number; concluidas: number; km: number; valor: number }[];
+  comentarios: { protocolo: string; nota: number; comentario: string | null; fornecedor: string | null; quando: string }[];
+};
 type Periodo = "mes" | "anterior" | "30dias" | "livre";
 type Opcao = { id: string; nome: string };
 
@@ -53,6 +58,8 @@ export default function Relatorios() {
   const [pessoa, setPessoa] = useState("");
   const [opcoes, setOpcoes] = useState<{ fornecedores: Opcao[]; pessoas: Opcao[] }>({ fornecedores: [], pessoas: [] });
   const [r, setR] = useState<Resumo | null>(null);
+  const [q, setQ] = useState<Qualidade | null>(null);
+  const [errQ, setErrQ] = useState("");
   const [err, setErr] = useState("");
   const [carregando, setCarregando] = useState(true);
 
@@ -78,6 +85,9 @@ export default function Relatorios() {
       });
       setErr(error ? `Não foi possível gerar o relatório: ${error.message}${/could not find|does not exist/i.test(error.message) ? " — rode a migração supabase/009_relatorios.sql." : ""}` : "");
       setR((data as Resumo) ?? null);
+      const qual = await supabase.rpc("fn_relatorio_qualidade", { p_de: deIso(de).toISOString(), p_ate: deIso(ate, true).toISOString(), p_fornecedor: fornecedor || null, p_solicitante: pessoa || null });
+      setErrQ(qual.error ? (/could not find|does not exist/i.test(qual.error.message) ? "Rode a migração supabase/021_qualidade.sql para ver pontualidade, notas e gasto por setor." : qual.error.message) : "");
+      setQ((qual.data as Qualidade) ?? null);
       setCarregando(false);
     })();
   }, [de, ate, fornecedor, pessoa]);
@@ -102,7 +112,19 @@ export default function Relatorios() {
       { titulo: "Pessoa", largura: 24 }, { titulo: "Setor", largura: 16 }, { titulo: "Corridas", formato: "inteiro" }, { titulo: "Canceladas", formato: "inteiro" },
       { titulo: "Valor informado", formato: "moeda", largura: 16 }, { titulo: "Limite mensal", formato: "moeda", largura: 14 },
     ], r.por_solicitante.map((s) => [s.nome, s.setor ?? "", s.qtd, s.canceladas ?? 0, Number(s.valor), s.limite == null ? null : Number(s.limite)]));
-    avisar("Duas planilhas baixadas: fornecedores e pessoas.");
+    if (q) {
+      baixarXlsx(`setores-${sufixo}.xlsx`, "Gasto por setor", [
+        { titulo: "Setor", largura: 22 }, { titulo: "Pessoas", formato: "inteiro" }, { titulo: "Corridas", formato: "inteiro" }, { titulo: "Concluídas", formato: "inteiro" },
+        { titulo: "Canceladas", formato: "inteiro" }, { titulo: "Km", formato: "decimal" }, { titulo: "Valor", formato: "moeda", largura: 14 },
+      ], q.por_setor.map((s) => [s.setor, s.pessoas, s.corridas, s.concluidas, s.canceladas, Number(s.km), Number(s.valor)]));
+      baixarXlsx(`qualidade-${sufixo}.xlsx`, "Qualidade", [
+        { titulo: "Fornecedor", largura: 24 }, { titulo: "Corridas feitas", formato: "inteiro", largura: 14 }, { titulo: "No horário (%)", formato: "inteiro", largura: 14 },
+        { titulo: "Atraso médio (min)", formato: "decimal", largura: 16 }, { titulo: "Nota média", formato: "decimal" }, { titulo: "Avaliações", formato: "inteiro" },
+        { titulo: "Notas 1–2", formato: "inteiro" }, { titulo: "Não realizadas", formato: "inteiro", largura: 14 }, { titulo: "Contestações", formato: "inteiro", largura: 14 },
+      ], q.fornecedores.map((f) => [f.nome, f.feitas, f.medidas ? Math.round((f.no_horario / f.medidas) * 100) : null, f.atraso_medio_min == null ? null : Number(f.atraso_medio_min),
+        f.nota_media == null ? null : Number(f.nota_media), f.avaliacoes, f.notas_baixas, f.canceladas_fornecedor, f.contestacoes]));
+    }
+    avisar(q ? "Quatro planilhas baixadas: fornecedores, pessoas, setores e qualidade." : "Duas planilhas baixadas: fornecedores e pessoas.");
   };
 
   return (
@@ -166,6 +188,56 @@ export default function Relatorios() {
         </div>
         {!forn.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma viagem enviada no período."}</p>}
         {(r?.acima_tabela ?? 0) > 0 && <p className="resumo-entrada" style={{ marginTop: 10 }}><Link href="/corridas">Ver as corridas</Link> — as que passaram da tabela aparecem com o valor de tabela em vermelho.</p>}
+      </section>
+
+      <section className="card">
+        <div className="repor-topo"><div><h3>Qualidade dos fornecedores</h3>
+          <p className="repor-resumo">Pontualidade: chegada do motorista (botão “Motorista chegou”; sem ele, o embarque) contra o horário prometido no aceite, com a tolerância do parâmetro pontualidade_tolerancia_min. Nota: avaliação do passageiro depois da corrida (1 a 5).</p>
+        </div></div>
+        {errQ ? <p className="resumo-entrada">{errQ}</p> : (
+          <>
+            <div className="tw"><table>
+              <thead><tr><th>Fornecedor</th><th className="num">Feitas</th><th className="num">No horário</th><th className="num">Atraso médio</th><th className="num">Nota</th><th className="num">Notas 1–2</th><th className="num">Não realizadas</th><th className="num">Contestações</th></tr></thead>
+              <tbody>{(q?.fornecedores ?? []).map((f) => (
+                <tr key={f.id}>
+                  <td>{f.nome}</td><td className="num">{f.feitas}</td>
+                  <td className="num">{f.medidas ? <><strong>{pct(f.no_horario, f.medidas)}</strong><small className="bloco texto-fraco">{f.no_horario} de {f.medidas}</small></> : "—"}</td>
+                  <td className="num">{f.atraso_medio_min == null ? "—" : `${Number(f.atraso_medio_min).toLocaleString("pt-BR")} min`}</td>
+                  <td className="num">{f.nota_media == null ? "—" : <><strong>{Number(f.nota_media).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</strong><small className="bloco texto-fraco">{f.avaliacoes} nota(s)</small></>}</td>
+                  <td className={`num${f.notas_baixas ? " negative" : ""}`}>{f.notas_baixas}</td>
+                  <td className={`num${f.canceladas_fornecedor ? " negative" : ""}`}>{f.canceladas_fornecedor}</td>
+                  <td className="num">{f.contestacoes}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            {!q?.fornecedores?.length && <p className="empty">{carregando ? "Carregando…" : "Nenhuma corrida feita no período."}</p>}
+            {!!q?.comentarios?.length && <>
+              <h4 style={{ margin: "16px 0 6px" }}>Comentários e notas baixas</h4>
+              <div className="tw"><table className="tabela-compacta">
+                <thead><tr><th>Corrida</th><th>Fornecedor</th><th className="num">Nota</th><th>Comentário</th></tr></thead>
+                <tbody>{q.comentarios.map((x) => <tr key={x.protocolo}><td>{x.protocolo}</td><td>{x.fornecedor ?? "—"}</td><td className={`num${x.nota <= 2 ? " negative" : ""}`}>{x.nota}</td><td>{x.comentario ?? <span className="texto-fraco">—</span>}</td></tr>)}</tbody>
+              </table></div>
+            </>}
+          </>
+        )}
+      </section>
+
+      <section className="card">
+        <div className="repor-topo"><div><h3>Gasto por setor</h3>
+          <p className="repor-resumo">Setor de cada pessoa autorizada (Cadastros › Pessoas). Valor: faturado; sem fatura, o da tabela; sem tabela, o informado.</p>
+        </div></div>
+        {errQ ? <p className="resumo-entrada">{errQ}</p> : (
+          <div className="grade-2">
+            <div className="tw"><table className="tabela-compacta">
+              <thead><tr><th>Setor</th><th className="num">Pessoas</th><th className="num">Corridas</th><th className="num">Canceladas</th><th className="num">Km</th><th className="num">Valor</th></tr></thead>
+              <tbody>{(q?.por_setor ?? []).map((s) => (
+                <tr key={s.setor}><td>{s.setor}</td><td className="num">{s.pessoas}</td><td className="num">{s.corridas}</td><td className="num">{s.canceladas}</td>
+                  <td className="num">{Number(s.km).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}</td><td className="num">{brl(Number(s.valor))}</td></tr>
+              ))}</tbody>
+            </table></div>
+            <Barras dados={(q?.por_setor ?? []).filter((s) => Number(s.valor) > 0).map((s) => ({ nome: s.setor, qtd: s.concluidas, valor: Number(s.valor) }))} vazio={carregando ? "Carregando…" : "Sem corridas concluídas no período."} />
+          </div>
+        )}
       </section>
 
       <ComparativoKm de={deIso(de).toISOString()} ate={new Date(deIso(ate, true).getTime() + 60_000).toISOString()} fornecedorId={fornecedor} podeCalcular={planejamento} />

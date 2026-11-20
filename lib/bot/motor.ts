@@ -4,7 +4,7 @@ import type { Conversa, Corrida, Entrada, Fornecedor, LocalCadastrado, Opcao, Re
 import { CANCELAVEIS_SOLICITANTE, STATUS } from "../status";
 import { brl, formatarDataHora, lerDataHora, lerValor } from "../datas";
 import { normalizarTelefone } from "../telefone";
-import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
+import { alertar, avisarPlanejamento, avisarSolicitante, cancelarCorrida, despachar, escolherFornecedor, numero, pedirAvaliacao, reenviarAutomatico, telefonesPlanejamento, verificarValor } from "./acoes";
 
 /**
  * Motor do bot: recebe uma mensagem e devolve as mensagens a enviar.
@@ -43,7 +43,9 @@ export function contemPalavra(texto: string | undefined, palavras: string[]): bo
   return palavras.some((p) => new RegExp(`(^|[^a-z0-9])${escaparRegex(p)}([^a-z0-9]|$)`).test(t));
 }
 
-const ACAO_FORNECEDOR = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):/;
+const ACAO_FORNECEDOR = /^(ACEITAR|RECUSAR|CHEGOU|EMBARCOU|NAO_REALIZADA):/;
+const NOTA = /^NOTA:(.+):([1-5])$/;
+const JANELA_AVALIACAO_MS = 24 * 3600_000;
 const ETAPAS_FORNECEDOR = ["motorista", "placa", "chegada", "valor", "aguardando"];
 
 /**
@@ -63,6 +65,10 @@ export async function deveAtender(entrada: Entrada, repo: Repo, agora: Date): Pr
   if (fornecedor?.ativo) return ACAO_FORNECEDOR.test(entrada.botaoId ?? "") || (!!conv && ETAPAS_FORNECEDOR.includes(conv.etapa));
   // Pessoa autorizada com corrida aberta (até o embarque): fala com o robô sem a palavra, para acompanhar ou cancelar
   const sol = await repo.solicitantePorTelefone(telefone);
+  // Nota da corrida: o botão (vale sempre) ou o número de 1 a 5 / o comentário pedido, dentro de 24 h
+  if (sol?.ativo && NOTA.test(entrada.botaoId ?? "")) return true;
+  if (sol?.ativo && conv && agora.getTime() - new Date(conv.atualizado_em).getTime() <= JANELA_AVALIACAO_MS &&
+    ((conv.etapa === "avaliar" && /^\s*[1-5]\s*$/.test(entrada.texto ?? "")) || (conv.etapa === "avaliar_comentario" && !!entrada.texto?.trim()))) return true;
   if (sol?.ativo && (await repo.corridasDoSolicitante(sol.id, 10)).some((c) => CANCELAVEIS_SOLICITANTE.includes(c.status))) return true;
   if (!conv || conv.etapa === "nao_autorizado") return false;
   const expiraMin = await numero(repo, "conversa_expira_min", 15);
@@ -122,6 +128,34 @@ async function fluxoSolicitante(sol: Solicitante, e: Entrada, repo: Repo, agora:
   const primeiroNome = sol.nome.split(" ")[0];
   let conv = await repo.conversa(tel);
   const saidas: Saida[] = [];
+
+  // ---- Nota da corrida (pedida depois da conclusão): botão "NOTA:<id>:<n>" ou o número digitado
+  const recente = !!conv && agora.getTime() - new Date(conv.atualizado_em).getTime() <= JANELA_AVALIACAO_MS;
+  const mNota = e.botaoId?.match(NOTA);
+  const digitada = !e.botaoId && conv?.etapa === "avaliar" && recente && /^[1-5]$/.test(e.texto ?? "") ? Number(e.texto) : null;
+  if (mNota || digitada) {
+    const c = await repo.corrida(mNota ? mNota[1] : String(conv!.dados.corrida_id));
+    if (!c || c.solicitante_id !== sol.id) return [{ para: tel, texto: "Não encontrei essa corrida." }];
+    const nota = mNota ? Number(mNota[2]) : digitada!;
+    const gravou = await repo.avaliarCorrida?.(c.id, nota).catch(() => false);
+    if (!gravou) {
+      if (conv?.etapa === "avaliar") await repo.apagarConversa(tel);
+      return [{ para: tel, corridaId: c.id, texto: c.avaliacao ? `A corrida ${c.protocolo} já foi avaliada. Obrigado!` : `Não foi possível registrar a nota da corrida ${c.protocolo}.` }];
+    }
+    if (nota <= 3) {
+      await repo.salvarConversa(tel, "avaliar_comentario", { corrida_id: c.id }, agora);
+      return [{ para: tel, corridaId: c.id, texto: `Nota ${nota} registrada. O que não foi bem? Escreva em uma mensagem (ou "pular").` }];
+    }
+    if (conv?.etapa === "avaliar") await repo.apagarConversa(tel);
+    return [{ para: tel, corridaId: c.id, texto: `Nota ${nota} registrada. Obrigado pela avaliação!` }];
+  }
+  if (conv?.etapa === "avaliar_comentario" && recente && e.texto) {
+    await repo.apagarConversa(tel);
+    if (!/^(pular|nao|não|n)$/i.test(e.texto.trim())) await repo.avaliarCorrida?.(String(conv.dados.corrida_id), null, e.texto).catch(() => false);
+    return [{ para: tel, texto: "Obrigado! O planejamento vai ver seu comentário." }];
+  }
+  // Pedido de nota sem resposta: segue a conversa normal
+  if (conv && ["avaliar", "avaliar_comentario"].includes(conv.etapa)) { await repo.apagarConversa(tel); conv = null; }
 
   const expiraMin = await numero(repo, "conversa_expira_min", 15);
   if (conv && agora.getTime() - new Date(conv.atualizado_em).getTime() > expiraMin * 60_000) {
@@ -433,7 +467,7 @@ async function registrar(sol: Solicitante, d: Record<string, any>, repo: Repo, a
 
 // ---------------------------------------------------------------- Fornecedor
 
-const ACOES_FORNECEDOR = /^(ACEITAR|RECUSAR|EMBARCOU|NAO_REALIZADA):(.+)$/;
+const ACOES_FORNECEDOR = /^(ACEITAR|RECUSAR|CHEGOU|EMBARCOU|NAO_REALIZADA):(.+)$/;
 
 async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: Date): Promise<Saida[]> {
   const tel = e.telefone;
@@ -442,7 +476,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
 
   /** Com nome, placa e chegada conferidos: a corrida fica aceita e o solicitante é avisado. */
   const confirmarCorrida = async (c: Corrida, motorista: string, placa: string, chegada: Date, eta: number): Promise<Saida[]> => {
-    const campos = { motorista, veiculo_placa: placa, eta_minutos: eta };
+    const campos = { motorista, veiculo_placa: placa, eta_minutos: eta, chegada_prevista_em: chegada.toISOString() };
     const atrasado = c.status === "sem_resposta";
     const atual = c.status === "aceita"
       ? await repo.mudarStatus(c.id, null, "fornecedor", "Dados do motorista atualizados", campos)
@@ -454,8 +488,8 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     const roteiro = c.status === "aceita" ? null : await repo.roteiro?.(atual).catch(() => null);
     return [
       ...(roteiro ? [responder(roteiro, undefined, c.id)] : []),
-      responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o passageiro embarcar, ou envie o valor ao final.`,
-        [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
+      responder(`Corrida ${c.protocolo} confirmada: ${detalhes}. Toque abaixo quando o motorista chegar ao local e quando o passageiro embarcar, ou envie o valor ao final.`,
+        [{ id: `CHEGOU:${c.protocolo}`, titulo: "Motorista chegou" }, { id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
       ...await avisarSolicitante(repo, atual, `Sua corrida ${c.protocolo} foi aceita por ${forn.nome}. Motorista: ${detalhes}.`, `aceita por ${forn.nome}. Motorista: ${detalhes}`),
       ...alertas,
     ];
@@ -490,6 +524,19 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
         ok,
         ...await avisarSolicitante(repo, atual, `O fornecedor ${forn.nome} não atendeu a corrida ${c.protocolo}. O planejamento foi avisado e vai providenciar outro fornecedor.`, "o fornecedor recusou; o planejamento foi avisado"),
         ...await alertar(repo, atual, "recusada pelo fornecedor"),
+      ];
+    }
+
+    if (acao === "CHEGOU") {
+      if (c.status !== "aceita") return [responder(`A corrida ${c.protocolo} está como "${STATUS[c.status].rotulo}".`)];
+      if (c.chegou_em) return [responder(`A chegada do motorista na corrida ${c.protocolo} já foi registrada às ${formatarHora(new Date(c.chegou_em))}.`, undefined, c.id)];
+      const atual = await repo.mudarStatus(c.id, null, "fornecedor", "Motorista chegou ao local de embarque", { chegou_em: agora.toISOString() });
+      await repo.salvarConversa(tel, "aguardando", { corrida_id: c.id }, agora);
+      const quem = [atual.motorista, atual.veiculo_placa ? `placa ${formatarPlaca(atual.veiculo_placa)}` : null].filter(Boolean).join(", ");
+      return [
+        responder(`Chegada registrada às ${formatarHora(agora)}. Toque abaixo quando o passageiro embarcar.`,
+          [{ id: `EMBARCOU:${c.protocolo}`, titulo: "Passageiro embarcou" }, { id: `NAO_REALIZADA:${c.protocolo}`, titulo: "Não realizada" }], c.id),
+        ...await avisarSolicitante(repo, atual, `Seu motorista chegou ao local de embarque da corrida ${c.protocolo}${quem ? ` (${quem})` : ""}.`, `motorista chegou${quem ? ` (${quem})` : ""}`),
       ];
     }
 
@@ -567,6 +614,7 @@ async function fluxoFornecedor(forn: Fornecedor, e: Entrada, repo: Repo, agora: 
     return [
       responder(`Valor de ${brl(valor)} registrado para a corrida ${c.protocolo}.${situacao} Obrigado!`, undefined, c.id),
       ...await verificarValor(repo, atual, valor, agora),
+      ...await pedirAvaliacao(repo, atual, agora),
     ];
   }
 

@@ -14,6 +14,7 @@ import { useIntervaloVisivel } from "@/lib/hooks/useIntervaloVisivel";
 import { EXCECOES, type StatusCorrida } from "@/lib/status";
 import { brl, dataSP, formatarDataHora, partesSP } from "@/lib/datas";
 import NotificacoesPush from "@/components/NotificacoesPush";
+import { useAlertas } from "@/components/AlertasPlanejamento";
 
 type Linha = {
   id: string; protocolo: string; status: StatusCorrida; data_hora_prevista: string; destino: string; prazo_resposta_em: string | null;
@@ -30,6 +31,13 @@ const CAMPOS = "id,protocolo,status,data_hora_prevista,destino,prazo_resposta_em
 
 export default function VisaoGeral() {
   const { planejamento } = useApp();
+  const { pendencias } = useAlertas();
+  const avisos = [
+    pendencias.extras && { n: pendencias.extras, texto: "extra(s) lançado(s) pelos fornecedores para aprovar", href: "/conciliacao" },
+    pendencias.contestados && { n: pendencias.contestados, texto: "espelho(s) contestado(s) pelo fornecedor", href: "/conciliacao" },
+    pendencias.espelhosVencendo && { n: pendencias.espelhosVencendo, texto: "espelho(s) com prazo terminando em até 24 h (depois, aprovação automática)", href: "/conciliacao" },
+    pendencias.notasBaixas && { n: pendencias.notasBaixas, texto: "corrida(s) com nota 1 ou 2 nos últimos 7 dias", href: "/relatorios" },
+  ].filter(Boolean) as { n: number; texto: string; href: string }[];
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [hoje, setHoje] = useState(0);
   const [excecoes, setExcecoes] = useState<Linha[]>([]);
@@ -78,6 +86,14 @@ export default function VisaoGeral() {
         <KpiCard value={soma("concluida")} label="Concluídas a validar" />
         <KpiCard value={excecoes.length} label="Exceções para tratar" alert={excecoes.length > 0} />
       </div>
+      {planejamento && avisos.length > 0 && (
+        <section className="card">
+          <div className="repor-topo"><div><h3>Outras pendências</h3></div></div>
+          <ul className="excecoes">
+            {avisos.map((a) => <li key={a.texto}><Link href={a.href}><strong>{a.n}</strong> {a.texto}</Link></li>)}
+          </ul>
+        </section>
+      )}
 
       <div className="grade-2">
         <div>

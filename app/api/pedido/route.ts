@@ -60,6 +60,9 @@ export async function GET(req: Request) {
         quando: formatarDataHora(c.data_hora_prevista), origem: c.origem, destino: trajetoTexto(c), fornecedor: c.fornecedores?.nome ?? null,
         motorista: [c.motorista, c.veiculo_placa, c.eta_minutos ? `${c.eta_minutos} min` : null].filter(Boolean).join(" · ") || null,
         pode_cancelar: CANCELAVEIS_SOLICITANTE.includes(c.status),
+        chegou: c.chegou_em ? formatarDataHora(c.chegou_em) : null,
+        avaliacao: c.avaliacao ?? null,
+        pode_avaliar: ["concluida", "validada", "contestada"].includes(c.status) && c.avaliacao == null && "avaliacao" in c,
         // Para o botão "Repetir": refaz o formulário com os mesmos dados
         repetir: {
           origem: c.origem, origem_lat: num(c.origem_lat), origem_lng: num(c.origem_lng), destino: c.destino, destino_lat: num(c.destino_lat), destino_lng: num(c.destino_lng),

@@ -17,7 +17,8 @@ type Props = {
 
 export default function Sidebar({ path, nav, planejamento, admin, profileName, onSignOut, open, onClose }: Props) {
   const ativo = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
-  const { excecoes } = useAlertas();
+  const { excecoes, pendencias } = useAlertas();
+  const naConciliacao = pendencias.extras + pendencias.contestados;
   return (
     <>
       <button type="button" className={`drawer-backdrop${open ? " visible" : ""}`} aria-label="Fechar menu" tabIndex={open ? 0 : -1} onClick={onClose} />
@@ -33,7 +34,8 @@ export default function Sidebar({ path, nav, planejamento, admin, profileName, o
         {nav.filter(([, , nivel]) => nivel === "todos" || (nivel === "planejamento" && planejamento) || (nivel === "admin" && admin)).map(([href, label]) => (
           <Link key={href} href={href} className={ativo(href) ? "on" : ""} onClick={onClose}>
             {label}
-            {href === "/" && planejamento && excecoes > 0 && <span className="contador-menu" aria-label={`${excecoes} exceções`}>{excecoes}</span>}
+            {href === "/" && planejamento && excecoes - naConciliacao > 0 && <span className="contador-menu" aria-label={`${excecoes - naConciliacao} exceções`}>{excecoes - naConciliacao}</span>}
+            {href === "/conciliacao" && naConciliacao > 0 && <span className="contador-menu" aria-label={`${naConciliacao} pendências`}>{naConciliacao}</span>}
           </Link>
         ))}
         <div style={{ flex: 1 }} />

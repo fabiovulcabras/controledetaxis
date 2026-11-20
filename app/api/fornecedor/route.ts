@@ -1,7 +1,7 @@
 import { trajetoTexto } from "@/lib/multidestino";
 import { formatarHora, lerChegada, placaValida } from "@/lib/motorista";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { alertar, avisarSolicitante, cancelarCorrida, reenviarAutomatico, valorEsperado, verificarValor } from "@/lib/bot/acoes";
+import { alertar, avisarSolicitante, cancelarCorrida, pedirAvaliacao, reenviarAutomatico, valorEsperado, verificarValor } from "@/lib/bot/acoes";
 import { despacharSaidas } from "@/lib/whatsapp/transporte";
 import {
   linkWhatsApp, msgAceitaSolicitante, msgNaoRealizadaSolicitante, msgNovaCorridaFornecedor, msgRecusaPlanejamento, msgRecusaSolicitante, urlApp, type LinkWhatsApp,
@@ -48,7 +48,7 @@ export async function GET(req: Request) {
       tipo: c.tipo, origem: c.origem, destino: trajetoTexto(c), passageiros: c.qtd_passageiros, outros_passageiros: c.outros_passageiros ?? null,
       observacoes: c.observacoes ?? null,
       solicitante: sol?.nome ?? "—", prazo: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? formatarDataHora(c.prazo_resposta_em) : null,
-      motorista: c.motorista ?? null, placa: c.veiculo_placa ?? null, minutos: c.eta_minutos ?? null,
+      motorista: c.motorista ?? null, placa: c.veiculo_placa ?? null, minutos: c.eta_minutos ?? null, chegou_em: (c as any).chegou_em ?? null,
       valor: c.valor_informado ?? null, motivo_cancelamento: c.motivo_cancelamento ?? null,
       distancia_km: c.distancia_km ?? null, valor_esperado: valorEsperado(c, forn),
       prazo_iso: c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? c.prazo_resposta_em : null,
@@ -107,7 +107,7 @@ export async function POST(req: Request) {
       if ("erro" in chegada) return erroJson(`Horário de chegada inválido: ${chegada.erro}.`);
       const atrasado = c.status === "sem_resposta";
       const atual = await repo.mudarStatus(c.id, "aceita", "fornecedor", `${atrasado ? "Aceita depois do prazo (pelo link)" : "Aceita pelo link"} (chegada ${formatarHora(chegada.em)})`, {
-        motorista, veiculo_placa: placa, eta_minutos: chegada.minutos,
+        motorista, veiculo_placa: placa, eta_minutos: chegada.minutos, chegada_prevista_em: chegada.em.toISOString(),
       });
       if (sol) {
         links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, msgAceitaSolicitante(atual, nomeForn, base, sol.token_pedido)) });
@@ -134,6 +134,16 @@ export async function POST(req: Request) {
         if (sol) links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, msgRecusaSolicitante(atual, nomeForn)) });
         saidas.push(...await alertar(repo, atual, "recusada pelo fornecedor"));
       }
+    } else if (acao === "chegou") {
+      if (c.status !== "aceita") return situacao();
+      if ((c as any).chegou_em) return erroJson("A chegada já foi registrada.", 409);
+      const atual = await repo.mudarStatus(c.id, null, "fornecedor", "Motorista chegou ao local de embarque (pelo link)", { chegou_em: new Date().toISOString() });
+      const quem = [atual.motorista, atual.veiculo_placa].filter(Boolean).join(", ");
+      const texto = `Seu motorista chegou ao local de embarque da corrida ${c.protocolo}${quem ? ` (${quem})` : ""}.`;
+      if (sol) {
+        links.push({ rotulo: `Avisar ${sol.nome.split(" ")[0]} pelo WhatsApp`, url: linkWhatsApp(sol.telefone_whatsapp, texto) });
+        saidas.push(...await avisarSolicitante(repo, atual, texto, `motorista chegou${quem ? ` (${quem})` : ""}`));
+      }
     } else if (acao === "embarque") {
       if (c.status !== "aceita") return situacao();
       await repo.mudarStatus(c.id, "em_andamento", "fornecedor", "Passageiro embarcou (pelo link)");
@@ -142,7 +152,7 @@ export async function POST(req: Request) {
       const valor = typeof corpo.valor === "number" ? corpo.valor : lerValor(String(corpo.valor ?? ""));
       if (valor == null || valor <= 0) return erroJson("Informe o valor da corrida, por exemplo 68,50.");
       const atual = await repo.mudarStatus(c.id, "concluida", "fornecedor", `Concluída, valor informado ${brl(valor)} (pelo link)`, { valor_informado: valor });
-      saidas.push(...await verificarValor(repo, atual, valor, new Date()));
+      saidas.push(...await verificarValor(repo, atual, valor, new Date()), ...await pedirAvaliacao(repo, atual, new Date()));
     } else if (acao === "nao_realizada") {
       if (!["aceita", "em_andamento"].includes(c.status)) return situacao();
       const r = await cancelarCorrida(repo, c, "Fornecedor informou que a corrida não foi realizada", "fornecedor");

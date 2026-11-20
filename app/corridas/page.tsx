@@ -32,6 +32,7 @@ type Corrida = {
   solicitantes?: { nome: string; setor: string | null; telefone_whatsapp: string } | null;
   fornecedores?: { nome: string; telefone_whatsapp?: string; bandeirada?: number | null; valor_km?: number | null } | null;
   token_fornecedor?: string;
+  chegou_em?: string | null; chegada_prevista_em?: string | null; avaliacao?: number | null; avaliacao_comentario?: string | null;
 };
 /** Linha da view corridas_lista (nomes já juntados). */
 type Linha = Omit<Corrida, "solicitantes" | "fornecedores"> & {
@@ -423,6 +424,12 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
             {c.observacoes && <><dt>Observações</dt><dd className="observacoes-corrida">{c.observacoes}</dd></>}
             <dt>Fornecedor</dt><dd>{c.fornecedores?.nome ?? "—"}{c.prazo_resposta_em && ["enviada", "sem_resposta"].includes(c.status) ? <span className="bloco"><Prazo ate={c.prazo_resposta_em} /></span> : null}</dd>
             <dt>Motorista</dt><dd>{c.motorista ? [c.motorista, c.veiculo_placa ? formatarPlaca(c.veiculo_placa) : null, c.eta_minutos != null ? `chegada em ${c.eta_minutos} min após o aceite` : null].filter(Boolean).join(" · ") : <span className="texto-fraco">Ainda não informado (a corrida só é confirmada com motorista, placa e horário)</span>}</dd>
+            {(c.chegada_prevista_em || c.chegou_em) && <><dt>Chegada</dt><dd>
+              {c.chegada_prevista_em && <>prevista {formatarDataHora(c.chegada_prevista_em)}</>}
+              {c.chegou_em && <>{c.chegada_prevista_em ? " · " : ""}chegou {formatarDataHora(c.chegou_em)}
+                {c.chegada_prevista_em && (() => { const m = Math.round((new Date(c.chegou_em).getTime() - new Date(c.chegada_prevista_em).getTime()) / 60_000); return m > 0 ? <span className="negative"> ({m} min de atraso)</span> : <span className="positive"> (no horário)</span>; })()}</>}
+            </dd></>}
+            {c.avaliacao != null && <><dt>Avaliação</dt><dd>{"★".repeat(c.avaliacao)}{"☆".repeat(5 - c.avaliacao)} ({c.avaliacao} de 5){c.avaliacao_comentario ? ` — “${c.avaliacao_comentario}”` : ""}</dd></>}
             <dt>{paradasDa(c).length ? "Km rodado (com paradas)" : "Distância (trajeto)"}</dt><dd>{c.distancia_km != null ? <>{fmtKm(c.distancia_km)}{(c as any).distancia_fonte === "estimada" && <small className="bloco texto-fraco">estimada (linha reta × 1,3)</small>}</> : <span className="texto-fraco">Ainda não calculada</span>}
               {podeAgir && <button type="button" className="atalho bloco" disabled={ocupado} onClick={recalcularKm}>{c.distancia_km != null ? "Recalcular km" : "Calcular km"}</button>}</dd>
             <dt>Valor por km</dt><dd>{(() => {

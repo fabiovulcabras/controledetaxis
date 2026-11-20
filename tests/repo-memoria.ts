@@ -75,6 +75,14 @@ export class RepoMemoria implements Repo {
     this.eventos.push({ corrida_id: id, de, para: c.status, origem, obs });
     return { ...c };
   }
+  async avaliarCorrida(id: string, nota: number | null, comentario?: string | null) {
+    const c = this.corridas.find((x) => x.id === id) as any;
+    if (!c) return false;
+    if (nota == null) { if (c.avaliacao == null || c.avaliacao_comentario) return false; c.avaliacao_comentario = comentario; return true; }
+    if (!["concluida", "validada", "contestada"].includes(c.status) || c.avaliacao != null) return false;
+    c.avaliacao = nota; c.avaliacao_comentario = comentario ?? null;
+    return true;
+  }
   async corridasDoSolicitante(id: string, limite: number) { return this.corridas.filter((c) => c.solicitante_id === id).reverse().slice(0, limite); }
   async corridasComPrazoVencido(agora: Date) { return this.corridas.filter((c) => c.status === "enviada" && c.prazo_resposta_em && new Date(c.prazo_resposta_em) < agora); }
   async gastoDoMes(id: string, agora: Date) {

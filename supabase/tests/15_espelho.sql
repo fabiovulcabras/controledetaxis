@@ -15,8 +15,8 @@ insert into auth.users (id, email) values ('00000000-0000-0000-0000-00000000000a
 update profiles set perfil = 'planejamento' where id = :'pla';
 
 select '== Dias úteis';
--- sexta 13/11/2026 10h -> 5º dia útil = sexta 20/11, fim do dia
-select ok('5 dias úteis a partir de uma sexta', fn_fim_dia_util('2026-11-13 10:00-03', 5) = '2026-11-20 23:59:59-03');
+-- sexta 13/11/2026 10h -> 5º dia útil = segunda 23/11 (20/11, Consciência Negra, é feriado), fim do dia
+select ok('5 dias úteis a partir de uma sexta (pulando o feriado)', fn_fim_dia_util('2026-11-13 10:00-03', 5) = '2026-11-23 23:59:59-03');
 select ok('2 dias úteis a partir de uma sexta = terça', fn_fim_dia_util('2026-11-13 10:00-03', 2) = '2026-11-17 23:59:59-03');
 
 select '== Corridas do mês';

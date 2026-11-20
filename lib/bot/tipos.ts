@@ -33,6 +33,8 @@ export type Corrida = {
   chave_envio?: string | null;
   /** Valor da tabela de preços do fornecedor para esta corrida (migração 008) */
   valor_tabela?: number | null; preco_descricao?: string | null; preco_fornecedor_id?: string | null; preco_calculado_em?: string | null;
+  /** Motorista chegou ao embarque e chegada prometida no aceite; nota do passageiro (migração 021) */
+  chegou_em?: string | null; chegada_prevista_em?: string | null; avaliacao?: number | null;
   criado_em: string;
 };
 
@@ -41,7 +43,7 @@ export type NovaCorrida = Pick<Corrida, "solicitante_id" | "tipo" | "data_hora_p
 
 export type CamposCorrida = Partial<Pick<Corrida,
   "fornecedor_id" | "motorista" | "veiculo_placa" | "eta_minutos" | "valor_informado" | "prazo_resposta_em" |
-  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor" | "fornecedores_tentados">>;
+  "motivo_recusa" | "motivo_cancelamento" | "lembrete_enviado_em" | "token_fornecedor" | "fornecedores_tentados" | "chegou_em" | "chegada_prevista_em">>;
 
 export type Conversa = { telefone: string; etapa: string; dados: Record<string, any>; atualizado_em: string };
 
@@ -102,6 +104,11 @@ export interface Repo {
    * Null se algum endereço não for achado no mapa. Opcional: sem ele, vale a ordem informada.
    */
   otimizarDestinos?(origem: { texto: string; lat: number | null; lng: number | null }, destinos: { texto: string; lat: number | null; lng: number | null }[]): Promise<{ ordem: number[] } | null>;
+  /**
+   * Nota do passageiro (1 a 5) para a corrida concluída; com nota null, só grava o comentário de uma corrida já avaliada.
+   * False se não gravou (já avaliada, não concluída). Opcional.
+   */
+  avaliarCorrida?(corridaId: string, nota: number | null, comentario?: string | null): Promise<boolean>;
   /** Texto do roteiro (menor trajeto e link do Google Maps) para o fornecedor; opcional. */
   roteiro?(c: Corrida): Promise<string | null>;
 

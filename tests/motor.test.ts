@@ -230,7 +230,16 @@ describe("respostas do fornecedor", () => {
     expect(c.repo.corridas[0].eta_minutos).toBe(11);
     expect(ultima(s2, ANA).texto).toContain("Motorista: Carlos Souza, placa RTX4F21, chegada prevista às 09h49 (em cerca de 11 min)");
     expect(ultima(s2, ANA).template?.nome).toBe("atualizacao_corrida_solicitante");
-    expect(ultima(s2, RTC).opcoes?.map((o) => o.id)).toEqual(["EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
+    expect(ultima(s2, RTC).opcoes?.map((o) => o.id)).toEqual(["CHEGOU:TX-2026-00001", "EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
+    expect(c.repo.corridas[0].chegada_prevista_em).toBe(min(29).toISOString());
+
+    // Motorista chegou: grava a hora e avisa o passageiro
+    const s3 = await c.enviar({ telefone: RTC, botaoId: "CHEGOU:TX-2026-00001" });
+    expect(!!c.repo.corridas[0].chegou_em).toBe(true);
+    expect(c.repo.corridas[0].status).toBe("aceita");
+    expect(ultima(s3, ANA).texto).toContain("Seu motorista chegou");
+    expect(ultima(s3, RTC).opcoes?.map((o) => o.id)).toEqual(["EMBARCOU:TX-2026-00001", "NAO_REALIZADA:TX-2026-00001"]);
+    expect((await c.enviar({ telefone: RTC, botaoId: "CHEGOU:TX-2026-00001" }))[0].texto).toContain("já foi registrada");
 
     await c.enviar({ telefone: RTC, botaoId: "EMBARCOU:TX-2026-00001" });
     expect(c.repo.corridas[0].status).toBe("em_andamento");
@@ -239,6 +248,30 @@ describe("respostas do fornecedor", () => {
     expect(c.repo.corridas[0].valor_informado).toBe(68.5);
     expect(s4[0].texto).toContain("R$");
     expect(para(s4, PLAN)).toHaveLength(0);
+
+    // Avaliação: o passageiro recebe as notas de 1 a 5; nota baixa pede comentário
+    const pedido = ultima(s4, ANA);
+    expect(pedido.texto).toContain("Dê uma nota de 1");
+    expect(pedido.opcoes).toHaveLength(5);
+    const s5 = await c.enviar({ telefone: ANA, texto: "2" });
+    expect((c.repo.corridas[0] as any).avaliacao).toBe(2);
+    expect(s5[0].texto).toContain("O que não foi bem?");
+    const s6 = await c.enviar({ telefone: ANA, texto: "Motorista atrasou 20 minutos" });
+    expect((c.repo.corridas[0] as any).avaliacao_comentario).toBe("Motorista atrasou 20 minutos");
+    expect(s6[0].texto).toContain("Obrigado");
+    // Botão de novo: já avaliada
+    expect((await c.enviar({ telefone: ANA, botaoId: `NOTA:${c.repo.corridas[0].id}:5` }))[0].texto).toContain("já foi avaliada");
+  });
+
+  it("avaliação desligada no parâmetro não pergunta a nota", async () => {
+    const c = conversa();
+    c.repo.parametros["avaliacao_ativa"] = "nao";
+    await pedirTaxiCompleto(c);
+    await c.enviar({ telefone: RTC, botaoId: "ACEITAR:TX-2026-00001" });
+    await c.enviar({ telefone: RTC, texto: "Carlos Souza, RTX4F21, 09h49" });
+    await c.enviar({ telefone: RTC, botaoId: "EMBARCOU:TX-2026-00001" });
+    const s = await c.enviar({ telefone: RTC, texto: "68,50" });
+    expect(para(s, ANA)).toHaveLength(0);
   });
 
 

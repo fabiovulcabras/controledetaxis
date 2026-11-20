@@ -14,6 +14,7 @@ type Dados = {
   corridas: {
     id: string; protocolo: string; status: string; status_rotulo: string; quando: string; origem: string; destino: string;
     fornecedor: string | null; motorista: string | null; pode_cancelar: boolean; whatsapp_fornecedor: string | null;
+    chegou?: string | null; avaliacao?: number | null; pode_avaliar?: boolean;
     repetir?: Record<string, any>;
   }[];
 };
@@ -215,6 +216,9 @@ export default function Pedir() {
               <div className="minha-corrida-topo"><span className="protocolo">{c.protocolo}</span><span className={classeStatus(c.status)}>{c.status_rotulo}</span></div>
               <p>{c.quando} · {c.destino}</p>
               <p className="texto-fraco">{c.fornecedor ?? "Sem fornecedor"}{c.motorista ? ` · ${c.motorista}` : ""}</p>
+              {c.chegou && c.status === "aceita" && <p className="ok" style={{ margin: "4px 0" }}>O motorista chegou ao local de embarque.</p>}
+              {c.avaliacao ? <p className="texto-fraco" style={{ margin: "4px 0" }}>Sua nota: {"★".repeat(c.avaliacao)}{"☆".repeat(5 - c.avaliacao)}</p>
+                : c.pode_avaliar && <AvaliarCorrida token={token} corridaId={c.id} onAvaliada={() => void carregar()} />}
               {c.repetir && !resultado && (
                 <div className="row"><button type="button" className="ghost" onClick={() => {
                   const r = c.repetir!;
@@ -290,6 +294,41 @@ function Moldura({ subtitulo, children }: { subtitulo?: string; children: React.
     <div className="publico">
       <header className="publico-topo"><div className="conteudo"><BrandMark /><div><strong>Pedido de táxi</strong>{subtitulo && <small>{subtitulo}</small>}</div></div></header>
       <main className="publico-corpo">{children}</main>
+    </div>
+  );
+}
+
+/** Nota de 1 a 5 (e comentário opcional) para uma corrida concluída. */
+function AvaliarCorrida({ token, corridaId, onAvaliada }: { token: string; corridaId: string; onAvaliada: () => void }) {
+  const [nota, setNota] = useState(0);
+  const [comentario, setComentario] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+  const enviar = async () => {
+    setEnviando(true); setErro("");
+    try {
+      const r = await fetch("/api/pedido/avaliar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, corrida_id: corridaId, nota, comentario }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setErro(j.erro ?? "Não foi possível registrar a nota."); return; }
+      onAvaliada();
+    } finally { setEnviando(false); }
+  };
+  return (
+    <div className="avaliar-corrida" style={{ marginTop: 6 }}>
+      <span className="texto-fraco" style={{ fontSize: 13 }}>Como foi esta corrida?</span>
+      <div className="row" role="radiogroup" aria-label="Nota de 1 a 5" style={{ gap: 2 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} type="button" role="radio" aria-checked={nota === n} aria-label={`${n} de 5`} className="ghost"
+            style={{ fontSize: 24, padding: "2px 6px", minHeight: 0, color: n <= nota ? "#f5a623" : undefined }} onClick={() => setNota(n)}>{n <= nota ? "★" : "☆"}</button>
+        ))}
+      </div>
+      {nota > 0 && (
+        <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
+          <input value={comentario} onChange={(e) => setComentario(e.target.value)} maxLength={500} placeholder={nota <= 3 ? "O que não foi bem? (opcional)" : "Comentário (opcional)"} />
+          <div className="row"><button type="button" className="pri" disabled={enviando} onClick={enviar}>{enviando ? "Enviando…" : "Enviar nota"}</button></div>
+        </div>
+      )}
+      {erro && <p className="err">{erro}</p>}
     </div>
   );
 }

@@ -12,7 +12,7 @@ import { STATUS_EXTRA, TIPOS_EXTRA, erroArquivo, type TipoExtra } from "@/lib/ex
 type Corrida = {
   protocolo: string; status: string; status_rotulo: string; fornecedor: string | null; quando: string; tipo: string;
   origem: string; destino: string; passageiros: number; outros_passageiros: string | null; solicitante: string; prazo: string | null;
-  motorista: string | null; placa: string | null; minutos: number | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string; observacoes?: string | null;
+  motorista: string | null; placa: string | null; minutos: number | null; chegou_em?: string | null; valor: number | null; motivo_cancelamento: string | null; mapa_origem: string; observacoes?: string | null;
   prazo_iso?: string | null; distancia_km?: number | null; valor_esperado?: number | null; autorizado?: boolean;
   valor_tabela?: number | null; tabela_descricao?: string | null;
   extras?: ExtraForn[]; extra_permitido?: boolean;
@@ -158,7 +158,9 @@ export default function RespostaFornecedor() {
       {emCurso && !tela && c.autorizado && <RoteiroCorrida token={token} />}
       {emCurso && !tela && (
         <div style={{ display: "grid", gap: 8 }}>
-          {c.status === "aceita" && <button type="button" className="pri botao-grande" disabled={ocupado} onClick={() => agir("embarque", {}, "Embarque registrado.")}>Passageiro embarcou</button>}
+          {c.status === "aceita" && !c.chegou_em && <button type="button" className="pri botao-grande" disabled={ocupado} onClick={() => agir("chegou", {}, "Chegada registrada. O passageiro foi avisado.")}>Motorista chegou ao local</button>}
+          {c.status === "aceita" && c.chegou_em && <p className="texto-fraco" style={{ margin: 0 }}>Motorista chegou às {new Date(c.chegou_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}.</p>}
+          {c.status === "aceita" && <button type="button" className={c.chegou_em ? "pri botao-grande" : "ghost botao-grande"} disabled={ocupado} onClick={() => agir("embarque", {}, "Embarque registrado.")}>Passageiro embarcou</button>}
           <button type="button" className={c.status === "aceita" ? "ghost botao-grande" : "pri botao-grande"} onClick={() => setTela("valor")}>Concluir e informar valor</button>
           <button type="button" className="ghost botao-perigo" onClick={() => setTela("nao_realizada")}>A corrida não foi realizada</button>
         </div>
