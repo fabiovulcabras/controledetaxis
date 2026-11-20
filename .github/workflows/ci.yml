@@ -38,7 +38,7 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: chave-de-exemplo
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Dependências
