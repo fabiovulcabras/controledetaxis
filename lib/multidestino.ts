@@ -36,15 +36,16 @@ function* permutacoes<T>(itens: T[]): Generator<T[]> {
 }
 
 /** Lê as paradas gravadas (jsonb), ignorando o que não for uma parada válida. */
-export function paradasDa(c: { paradas?: unknown }): Parada[] {
-  return Array.isArray(c.paradas)
-    ? c.paradas.filter((p: any) => p && typeof p.texto === "string" && p.texto.trim())
+export function paradasDa(c: object): Parada[] {
+  const lista = (c as { paradas?: unknown }).paradas;
+  return Array.isArray(lista)
+    ? lista.filter((p: any) => p && typeof p.texto === "string" && p.texto.trim())
         .map((p: any) => ({ texto: String(p.texto), lat: Number.isFinite(p.lat) ? p.lat : null, lng: Number.isFinite(p.lng) ? p.lng : null }))
     : [];
 }
 
 /** "Parada 1 → Parada 2 → Destino final", ou só o destino quando não há paradas. */
-export function trajetoTexto(c: { destino: string; paradas?: unknown }): string {
+export function trajetoTexto(c: { destino: string }): string {
   const p = paradasDa(c);
   return p.length ? [...p.map((x) => x.texto), c.destino].join(" → ") : c.destino;
 }
