@@ -5,16 +5,21 @@
  * planejamento confirma). Só funções puras: a tela lê a planilha, busca o cadastro e grava o resultado.
  */
 import { normalizar } from "./precos";
+import { normalizarCep, ufDoCep } from "./cep";
 
 export type Ativo = {
   codigo: string; nome: string; cargo: string | null; setor: string | null;
   /** AAAA-MM-DD */
   admissao: string | null; situacao: string | null;
+  /** Endereço de casa (rua e número), bairro, cidade, UF (pelo CEP, a planilha não traz) e CEP só com dígitos. */
+  endereco: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null;
+  /** AAAA-MM-DD; só vem se a planilha tiver a coluna Nascimento. */
+  nascimento: string | null;
 };
 export type Colaborador = Ativo & { id: string; ativo: boolean };
 
 /** Colunas do modelo enviado pelo RH. Só Código e Nome são obrigatórias. */
-export const COLUNAS_ATIVOS = ["Código", "Nome", "Cargo", "Nome Lotacao", "Admissao", "Situacao"] as const;
+export const COLUNAS_ATIVOS = ["Código", "Nome", "Cargo", "Nome Lotacao", "Admissao", "Situacao", "Endereco", "Bairro", "Cidade", "CEP", "Nascimento"] as const;
 type ColunaAtivos = (typeof COLUNAS_ATIVOS)[number];
 
 /** Código como texto estável: 15000923, "15000923" e "15000923.0" viram a mesma coisa. */
@@ -45,7 +50,9 @@ export function lerAtivos(linhas: string[][]): { registros: Ativo[]; erros: stri
   const validas = linhas.filter((l) => l.some((c) => String(c ?? "").trim()));
   if (!validas.length) return { registros, erros: ["A planilha está vazia."], avisos };
   const cab = validas[0].map(normalizar);
-  const idx = Object.fromEntries(COLUNAS_ATIVOS.map((c) => [c, cab.indexOf(normalizar(c))])) as Record<ColunaAtivos, number>;
+  const achar = (c: ColunaAtivos) => cab.indexOf(normalizar(c));
+  const idx = Object.fromEntries(COLUNAS_ATIVOS.map((c) => [c, achar(c)])) as Record<ColunaAtivos, number>;
+  if (idx.Nascimento < 0) idx.Nascimento = Math.max(cab.indexOf("data nascimento"), cab.indexOf("data de nascimento"), cab.indexOf("dt nascimento"));
   for (const obrig of ["Código", "Nome"] as const) {
     if (idx[obrig] < 0) return { registros, erros: [`Falta a coluna "${obrig}". Use o mesmo modelo da planilha de ativos (colunas: ${COLUNAS_ATIVOS.join(", ")}).`], avisos };
   }
@@ -62,9 +69,15 @@ export function lerAtivos(linhas: string[][]): { registros: Ativo[]; erros: stri
     vistos.add(codigo);
     const admissao = pegar(l, "Admissao");
     if (admissao && !lerDataCelula(admissao)) avisos.push(`Linha ${n}: admissão "${admissao}" não reconhecida (${nome}); ficará em branco.`);
+    const cepBruto = pegar(l, "CEP");
+    const cep = normalizarCep(cepBruto);
+    const cidade = pegar(l, "Cidade");
+    if (cepBruto && !cep) avisos.push(`Linha ${n}: CEP "${cepBruto}" inválido (${nome}); ficará em branco.`);
     registros.push({
       codigo, nome, cargo: pegar(l, "Cargo") || null, setor: pegar(l, "Nome Lotacao") || null,
       admissao: lerDataCelula(admissao), situacao: pegar(l, "Situacao") || null,
+      endereco: pegar(l, "Endereco") || null, bairro: pegar(l, "Bairro") || null, cidade: cidade || null, uf: ufDoCep(cep), cep,
+      nascimento: lerDataCelula(pegar(l, "Nascimento")),
     });
   });
   return { registros, erros, avisos };
@@ -84,7 +97,11 @@ export type ResultadoComparacao = {
 
 const mesmosDados = (a: Ativo, b: Ativo) =>
   a.nome === b.nome && (a.cargo ?? "") === (b.cargo ?? "") && (a.setor ?? "") === (b.setor ?? "")
-  && (a.admissao ?? "") === (b.admissao ?? "") && (a.situacao ?? "") === (b.situacao ?? "");
+  && (a.admissao ?? "") === (b.admissao ?? "") && (a.situacao ?? "") === (b.situacao ?? "")
+  && (a.endereco ?? "") === (b.endereco ?? "") && (a.bairro ?? "") === (b.bairro ?? "") && (a.cidade ?? "") === (b.cidade ?? "")
+  && (a.uf ?? "") === (b.uf ?? "") && (a.cep ?? "") === (b.cep ?? "")
+  // Nascimento só conta se a planilha o trouxe: sem a coluna, o que já está no cadastro fica como está
+  && (a.nascimento == null || a.nascimento === (b.nascimento ?? null));
 
 /** O código do colaborador é a chave: o nome pode mudar (casamento, correção) sem virar "novo + ausente". */
 export function compararAtivos(arquivo: Ativo[], cadastro: Colaborador[]): ResultadoComparacao {

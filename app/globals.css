@@ -661,3 +661,8 @@ a.botao-link:hover { background: var(--navy-900); }
 /* Pedido com vários destinos */
 .linha-destino-extra { display: flex; gap: 8px; align-items: flex-start; }
 .linha-destino-extra > :first-child { flex: 1; min-width: 0; }
+
+/* Extras: busca de colaboradores */
+.sugestoes { position: absolute; z-index: 20; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--slate-200); border-radius: 10px; box-shadow: var(--shadow); }
+.sugestoes button { all: unset; box-sizing: border-box; display: block; width: 100%; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.sugestoes button:hover, .sugestoes button:focus-visible { background: var(--slate-50); }

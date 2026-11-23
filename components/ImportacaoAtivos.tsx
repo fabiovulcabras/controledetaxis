@@ -9,6 +9,8 @@ import { COLUNAS_ATIVOS, compararAtivos, lerAtivos, normalizarCodigo, planilhaSu
 
 type Pessoa = { id: string; nome: string; matricula: string | null; ativo: boolean };
 
+const enderecoTexto = (x: { endereco: string | null; bairro: string | null; cidade: string | null; uf: string | null }) =>
+  [x.endereco, x.bairro, [x.cidade, x.uf].filter(Boolean).join("/")].filter(Boolean).join(", ") || null;
 const dataBr = (iso: string | null) => (iso ? iso.split("-").reverse().join("/") : "—");
 const em = <T,>(lista: T[], n: number) => { const partes: T[][] = []; for (let i = 0; i < lista.length; i += n) partes.push(lista.slice(i, i + n)); return partes; };
 const erroBanco = (e: { message: string }) =>
@@ -43,7 +45,7 @@ export default function ImportacaoAtivos() {
 
   const carregarCadastro = async () => {
     const [c, p] = await Promise.all([
-      lerTodos<Colaborador & { admissao: string | null }>("colaboradores", "id,codigo,nome,cargo,setor,admissao,situacao,ativo"),
+      lerTodos<Colaborador & { admissao: string | null }>("colaboradores", "id,codigo,nome,cargo,setor,admissao,situacao,ativo,endereco,bairro,cidade,uf,cep,nascimento"),
       lerTodos<Pessoa>("solicitantes", "id,nome,matricula,ativo", (q) => q.not("matricula", "is", null)),
     ]);
     setCadastro(c); setPessoas(p);
@@ -81,7 +83,9 @@ export default function ImportacaoAtivos() {
       if (error) throw new Error(erroBanco(error));
     }
   };
-  const campos = (a: Ativo) => ({ codigo: a.codigo, nome: a.nome, cargo: a.cargo, setor: a.setor, admissao: a.admissao, situacao: a.situacao });
+  // Nascimento só é gravado quando a planilha o traz; senão o upsert apagaria o que já estava no cadastro
+  const campos = (a: Ativo) => ({ codigo: a.codigo, nome: a.nome, cargo: a.cargo, setor: a.setor, admissao: a.admissao, situacao: a.situacao,
+    endereco: a.endereco, bairro: a.bairro, cidade: a.cidade, uf: a.uf, cep: a.cep, ...(a.nascimento ? { nascimento: a.nascimento } : {}) });
 
   const alternar = (conj: Set<string>, set: (s: Set<string>) => void, codigo: string) => {
     const novo = new Set(conj);
@@ -189,11 +193,11 @@ export default function ImportacaoAtivos() {
             ajuda="Códigos que ainda não existem no cadastro. Desmarque quem não deve entrar. O cadastro de colaboradores não dá permissão de pedir táxi: isso continua em Pessoas autorizadas."
             acao={<button type="button" className="pri" disabled={ocupado || !novosSel} onClick={cadastrarNovos}>Cadastrar {novosSel} novo(s)</button>}>
             <table>
-              <thead><tr><th /><th>Código</th><th>Nome</th><th>Cargo</th><th>Setor</th><th>Admissão</th></tr></thead>
+              <thead><tr><th /><th>Código</th><th>Nome</th><th>Cargo</th><th>Setor</th><th>Cidade / bairro</th></tr></thead>
               <tbody>{r.novos.map((a) => (
                 <tr key={a.codigo}>
                   <td><input type="checkbox" aria-label={`Cadastrar ${a.nome}`} checked={!desmarcados.has(a.codigo)} onChange={() => alternar(desmarcados, setDesmarcados, a.codigo)} /></td>
-                  <td className="protocolo">{a.codigo}</td><td>{a.nome}</td><td>{a.cargo ?? "—"}</td><td>{a.setor ?? "—"}</td><td>{dataBr(a.admissao)}</td>
+                  <td className="protocolo">{a.codigo}</td><td>{a.nome}</td><td>{a.cargo ?? "—"}</td><td>{a.setor ?? "—"}</td><td>{[a.cidade, a.uf].filter(Boolean).join("/") || "—"}{a.bairro ? ` · ${a.bairro}` : ""}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -217,14 +221,14 @@ export default function ImportacaoAtivos() {
 
           {r.atualizar.length > 0 && (
             <Secao titulo="Dados diferentes do cadastro" quantidade={r.atualizar.length} vazio=""
-              ajuda="Mesmo código, mas nome, cargo, setor, admissão ou situação mudaram na planilha (mudança de cargo ou setor, correção de nome)."
+              ajuda="Mesmo código, mas nome, cargo, setor, endereço ou outro dado mudaram na planilha (mudança de cargo, setor ou casa, correção de nome)."
               acao={<button type="button" className="ghost" disabled={ocupado} onClick={atualizar}>Atualizar {r.atualizar.length}</button>}>
               <table>
-                <thead><tr><th>Código</th><th>Nome</th><th>Cargo</th><th>Setor</th></tr></thead>
+                <thead><tr><th>Código</th><th>Nome</th><th>Cargo</th><th>Setor</th><th>Endereço</th></tr></thead>
                 <tbody>{r.atualizar.map((a) => {
                   const antes = cadastro.find((c) => c.id === a.id);
                   const celula = (novo: string | null, velho: string | null | undefined) => (novo ?? "") === (velho ?? "") ? (novo ?? "—") : <><s className="texto-fraco">{velho || "—"}</s> → {novo ?? "—"}</>;
-                  return <tr key={a.codigo}><td className="protocolo">{a.codigo}</td><td>{celula(a.nome, antes?.nome)}</td><td>{celula(a.cargo, antes?.cargo)}</td><td>{celula(a.setor, antes?.setor)}</td></tr>;
+                  return <tr key={a.codigo}><td className="protocolo">{a.codigo}</td><td>{celula(a.nome, antes?.nome)}</td><td>{celula(a.cargo, antes?.cargo)}</td><td>{celula(a.setor, antes?.setor)}</td><td>{celula(enderecoTexto(a), antes ? enderecoTexto(antes) : null)}</td></tr>;
                 })}</tbody>
               </table>
             </Secao>

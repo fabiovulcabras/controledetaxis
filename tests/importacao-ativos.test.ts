@@ -7,7 +7,7 @@ const linha = (codigo: string, nome: string, cargo = "AUXILIAR LOGISTICA", setor
   l[0] = codigo; l[1] = nome; l[4] = cargo; l[6] = setor; l[9] = admissao; l[16] = "1";
   return l;
 };
-const colab = (codigo: string, nome: string, ativo = true): Colaborador => ({ id: `id-${codigo}`, codigo, nome, cargo: "AUXILIAR LOGISTICA", setor: "LOGISTICA - DTC", admissao: "2024-03-25", situacao: "1", ativo });
+const colab = (codigo: string, nome: string, ativo = true): Colaborador => ({ id: `id-${codigo}`, codigo, nome, cargo: "AUXILIAR LOGISTICA", setor: "LOGISTICA - DTC", admissao: "2024-03-25", situacao: "1", endereco: null, bairro: null, cidade: null, uf: null, cep: null, nascimento: null, ativo });
 
 describe("importação de ativos", () => {
   it("lê o modelo do RH", () => {
@@ -24,6 +24,14 @@ describe("importação de ativos", () => {
     expect(r.registros).toHaveLength(1);
     expect(r.avisos[0]).toMatch(/repetido/);
     expect(r.erros[0]).toMatch(/falta o código/);
+  });
+
+  it("lê endereço, bairro, cidade e descobre o estado pelo CEP", () => {
+    const cab = [...CAB, "Nascimento"];
+    const l = linha("1", "ANA"); l[12] = "AV BRASIL, 322"; l[13] = "EXTREMA"; l[14] = "CENTRO"; l[15] = "37640000"; l.push("35000");
+    const r = lerAtivos([cab, l, Object.assign(linha("2", "BIA"), { 15: "1310100" })]);
+    expect(r.registros[0]).toMatchObject({ endereco: "AV BRASIL, 322", cidade: "EXTREMA", bairro: "CENTRO", cep: "37640000", uf: "MG", nascimento: "1995-10-28" });
+    expect(r.registros[1]).toMatchObject({ cep: "01310100", uf: "SP", nascimento: null });
   });
 
   it("normaliza código e data", () => {

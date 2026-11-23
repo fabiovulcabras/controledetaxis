@@ -17,6 +17,7 @@ export const useApp = () => useContext(AppCtx);
 const NAV: [string, string, NivelMenu][] = [
   ["/", "Visão geral", "todos"],
   ["/corridas", "Corridas", "todos"],
+  ["/extras", "Extras", "planejamento"],
   ["/relatorios", "Relatórios", "todos"],
   ["/conciliacao", "Conciliação", "planejamento"],
   ["/portais", "Portais dos fornecedores", "planejamento"],
