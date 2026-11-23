@@ -14,6 +14,7 @@ function dicaGoogle(erro: string, api: string): string {
 }
 import { chavesConferem, chavesVapid } from "@/lib/webpush";
 import { createClient } from "@supabase/supabase-js";
+import { fetchSemCache } from "@/lib/fetch-sem-cache";
 import { modoEnvio } from "@/lib/whatsapp/transporte";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ export async function GET() {
   });
 
   if (url && servico) {
-    const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false } });
+    const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetchSemCache } });
     const tabelas = ["profiles", "solicitantes", "fornecedores", "corridas", "mensagens", "conversas_bot", "parametros"];
     for (const t of tabelas) {
       const { error } = await db.from(t).select("*", { head: true });
@@ -111,7 +112,7 @@ export async function GET() {
     const temEndereco = !!(process.env.NEXT_PUBLIC_APP_URL || process.env.QSTASH_DESTINO_URL);
     itens.push({ ok: chaves && temEndereco, item: "Prazos pelo Upstash QStash", detalhe: !chaves ? "Faltam QSTASH_CURRENT_SIGNING_KEY e QSTASH_NEXT_SIGNING_KEY." : !temEndereco ? "Falta NEXT_PUBLIC_APP_URL (endereço público do app)." : undefined });
     if (url && servico) {
-      const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false } });
+      const db = createClient(url, servico, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: fetchSemCache } });
       const { error } = await db.from("corrida_tentativas").select("id", { head: true, count: "exact" }).limit(1);
       itens.push({ ok: !error, item: "Fila de fornecedores (migração 006)", detalhe: error ? "Rode supabase/006_fila_evolution_qstash.sql no SQL Editor." : undefined });
     }

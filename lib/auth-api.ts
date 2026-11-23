@@ -53,9 +53,10 @@ export const erroJson = (mensagem: string, status = 400) => Response.json({ erro
 /** Cliente Supabase agindo como o usuário logado (RLS e auth.uid() valem). */
 export async function clienteDoUsuario(req: Request) {
   const { createClient } = await import("@supabase/supabase-js");
+  const { fetchSemCache } = await import("./fetch-sem-cache");
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    global: { headers: { Authorization: `Bearer ${token}` }, fetch: fetchSemCache },
   });
 }
