@@ -1,5 +1,6 @@
 "use client";
 import { textoPortal } from "@/lib/portal-texto";
+import ImportacaoAtivos from "@/components/ImportacaoAtivos";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
@@ -14,10 +15,10 @@ import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import { textoDias } from "@/lib/recorrentes";
 import { COLUNAS_PLANILHA, ROTULO_MODALIDADE, ROTULO_VEICULO, lerTabelaPrecos, normalizar } from "@/lib/precos";
 
-type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "recorrentes" | "feriados" | "parametros" | "usuarios";
+type Aba = "solicitantes" | "fornecedores" | "precos" | "unidades" | "locais" | "motivos" | "recorrentes" | "feriados" | "parametros" | "usuarios" | "ativos";
 const ABAS: [Aba, string][] = [
   ["solicitantes", "Pessoas autorizadas"], ["fornecedores", "Fornecedores"], ["precos", "Tabela de preços"],
-  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["recorrentes", "Corridas recorrentes"], ["feriados", "Feriados"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"],
+  ["unidades", "Unidades"], ["locais", "Locais frequentes"], ["motivos", "Motivos"], ["recorrentes", "Corridas recorrentes"], ["feriados", "Feriados"], ["parametros", "Parâmetros"], ["usuarios", "Usuários do painel"], ["ativos", "Importação de Ativos"],
 ];
 
 export default function Cadastros() {
@@ -88,6 +89,7 @@ export default function Cadastros() {
       {aba === "feriados" && <Feriados />}
       {aba === "parametros" && <Parametros />}
       {aba === "usuarios" && <Usuarios />}
+      {aba === "ativos" && <ImportacaoAtivos />}
     </>
   );
 }
