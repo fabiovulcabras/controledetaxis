@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Ponto } from "./distancia";
-import { coordenadasDoTexto, rotaComCache } from "./km-corrida";
-import { percurso, type CarroPlano, type PessoaExtra, type Sentido } from "./extras-rota";
+import { coordenadasDoTexto } from "./km-corrida";
+import type { PessoaExtra } from "./extras-rota";
 
 /** Colaborador como vem do banco (tabela colaboradores). */
 export type ColaboradorDb = {
@@ -54,12 +54,31 @@ export const paraPessoa = (c: ColaboradorDb, ponto: Ponto | null): PessoaExtra =
   onde: { cidade: c.cidade, bairros: c.bairro ? [c.bairro] : [], texto: textoEndereco(c) },
 });
 
-/** Km real do carro (cada perna pelo menor trajeto, com cache de 30 dias). Null se alguma perna falhar. */
-export async function kmRealDoCarro(db: SupabaseClient, carro: CarroPlano, unidade: Ponto, sentido: Sentido): Promise<{ km: number; estimado: boolean } | null> {
-  if (carro.semLocal) return null;
-  const seq = percurso(carro, unidade, sentido);
-  try {
-    const pernas = await Promise.all(seq.slice(1).map((p, i) => rotaComCache(db, seq[i], p)));
-    return { km: Math.round(pernas.reduce((s, r) => s + r.km, 0) * 100) / 100, estimado: pernas.some((r) => r.fonte === "estimada") };
-  } catch { return null; }
+/** Coordenadas guardadas valem 30 dias (limite para guardar o resultado do Google); depois a casa é buscada de novo. */
+export const GEO_VALIDADE_DIAS = 30;
+export type ColaboradorGeo = ColaboradorDb & { ativo: boolean; lat: number | null; lng: number | null; geo_precisao: Precisao | null; geo_em: string | null };
+const COLUNAS_GEO = "id,codigo,nome,endereco,bairro,cidade,uf,cep,ativo,lat,lng,geo_precisao,geo_em";
+export const geoValida = (c: Pick<ColaboradorGeo, "lat" | "lng" | "geo_em">) =>
+  c.lat != null && c.lng != null && !!c.geo_em && Date.now() - new Date(c.geo_em).getTime() < GEO_VALIDADE_DIAS * 86400_000;
+
+/** Lê os colaboradores em lotes de 100 ids (a lista vai na URL da consulta; com 400 ids passaria do limite). */
+export async function lerColaboradores(db: SupabaseClient, ids: string[]): Promise<ColaboradorGeo[]> {
+  const saida: ColaboradorGeo[] = [];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await db.from("colaboradores").select(COLUNAS_GEO).in("id", ids.slice(i, i + 100));
+    if (error) throw new Error(error.message);
+    saida.push(...((data ?? []) as ColaboradorGeo[]));
+  }
+  return saida;
+}
+
+/** Ponto guardado do colaborador (null se não tem ou venceu). */
+export const pontoGuardado = (c: ColaboradorGeo): Ponto | null => (geoValida(c) ? { lat: Number(c.lat), lng: Number(c.lng) } : null);
+
+/** Ponto da unidade: o guardado em Cadastros › Unidades; sem ele, busca o endereço no mapa. */
+export async function pontoDaUnidade(unidade: { nome: string; endereco_padrao: string | null; lat: number | null; lng: number | null }): Promise<{ ponto: Ponto | null; texto: string }> {
+  const texto = String(unidade.endereco_padrao ?? "").trim() || unidade.nome;
+  if (unidade.lat != null && unidade.lng != null) return { ponto: { lat: Number(unidade.lat), lng: Number(unidade.lng) }, texto };
+  const g = await coordenadasDoTexto(texto);
+  return { ponto: g ? { lat: g.lat, lng: g.lng } : null, texto };
 }

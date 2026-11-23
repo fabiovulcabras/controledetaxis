@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { chamarApi } from "@/lib/api";
@@ -7,6 +7,8 @@ import { brl } from "@/lib/datas";
 import { Badge, KpiCard } from "@/components/UI";
 import { Campo, TopoPagina, normalizarTexto } from "@/components/Formulario";
 import { useRetorno } from "@/components/Retorno";
+import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
+import { casarLista, linhasDaLista, type ResultadoLista } from "@/lib/extras-lista";
 
 type Colab = { id: string; codigo: string; nome: string; endereco: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null };
 type Opcao = { id: string; nome: string };
@@ -20,8 +22,12 @@ type Gerada = { protocolo: string; fornecedor: string | null; passageiros: numbe
 
 const VEICULOS: [string, string][] = [["passeio", "Passeio (até 4 pessoas)"], ["spin", "Spin (até 6 pessoas)"], ["van", "Van (até 15 pessoas)"]];
 const ROTULO_VEICULO: Record<string, string> = { passeio: "Passeio", spin: "Spin", van: "Van" };
+const LOTE_LOCALIZAR = 20;
+const LOTE_KM = 8;
+const LOTE_GERAR = 6;
 const enderecoCurto = (c: Pick<Colab, "endereco" | "bairro" | "cidade" | "uf">) =>
   [c.endereco, c.bairro, [c.cidade, c.uf].filter(Boolean).join("/")].filter(Boolean).join(" · ");
+const em = <T,>(lista: T[], n: number) => { const partes: T[][] = []; for (let i = 0; i < lista.length; i += n) partes.push(lista.slice(i, i + n)); return partes; };
 
 export default function Extras() {
   const { confirmar, avisar } = useRetorno();
@@ -31,16 +37,22 @@ export default function Extras() {
   const [erroCarga, setErroCarga] = useState("");
   const [escolhidos, setEscolhidos] = useState<Colab[]>([]);
   const [busca, setBusca] = useState("");
+  const [lista, setLista] = useState("");
+  const [relatorioLista, setRelatorioLista] = useState<ResultadoLista<Colab> | null>(null);
   const [sentido, setSentido] = useState<"saida" | "entrada">("saida");
   const [quando, setQuando] = useState("");
   const [unidadeId, setUnidadeId] = useState("");
   const [solicitanteId, setSolicitanteId] = useState("");
-  const [veiculoMaximo, setVeiculoMaximo] = useState("spin");
+  const [veiculoMaximo, setVeiculoMaximo] = useState("van");
   const [plano, setPlano] = useState<Plano | null>(null);
   const [lote, setLote] = useState("");
   const [ocupado, setOcupado] = useState<"" | "planejar" | "gerar">("");
+  const [progresso, setProgresso] = useState("");
+  const [medindo, setMedindo] = useState("");
   const [erro, setErro] = useState("");
   const [geradas, setGeradas] = useState<Gerada[] | null>(null);
+  // Cada plano novo cancela a medição de km do anterior
+  const versaoPlano = useRef(0);
 
   useEffect(() => {
     (async () => {
@@ -51,7 +63,7 @@ export default function Extras() {
       ]);
       if (c.error) {
         setErroCarga(/does not exist|could not find the table|schema cache/i.test(c.error.message)
-          ? "O banco ainda não tem o cadastro de colaboradores. Rode supabase/023_colaboradores.sql e 024_colaboradores_endereco.sql no SQL Editor do Supabase e recarregue a página."
+          ? "O banco ainda não tem o cadastro de colaboradores. Rode supabase/023, 024 e 025 (colaboradores) no SQL Editor do Supabase e recarregue a página."
           : c.error.message);
         return;
       }
@@ -69,20 +81,73 @@ export default function Extras() {
     return colabs.filter((c) => !jaTem.has(c.id) && (normalizarTexto(c.nome).includes(termo) || c.codigo.includes(termo))).slice(0, 8);
   }, [busca, colabs, escolhidos]);
 
-  const mudou = () => { setPlano(null); setGeradas(null); setErro(""); };
+  const mudou = () => { versaoPlano.current++; setPlano(null); setGeradas(null); setErro(""); setMedindo(""); };
   const adicionar = (c: Colab) => { setEscolhidos((l) => [...l, c]); setBusca(""); mudou(); };
   const remover = (id: string) => { setEscolhidos((l) => l.filter((c) => c.id !== id)); mudou(); };
+
+  /** Lista colada ou planilha: cada linha é um código ou um nome. */
+  const adicionarLista = (entradas: string[]) => {
+    const r = casarLista(entradas, colabs, new Set(escolhidos.map((c) => c.id)));
+    if (r.achados.length) { setEscolhidos((l) => [...l, ...r.achados]); mudou(); }
+    setRelatorioLista(r);
+    setLista("");
+  };
+  const lerArquivo = async (f: File) => {
+    try {
+      const linhas = await lerPlanilhaXlsx(await f.arrayBuffer());
+      const cab = (linhas[0] ?? []).map(normalizarTexto);
+      const col = Math.max(cab.indexOf("codigo"), cab.indexOf("nome"));
+      adicionarLista(linhas.slice(col >= 0 ? 1 : 0).map((l) => l[col >= 0 ? col : 0] ?? "").filter(Boolean));
+    } catch (e) { setErro(e instanceof Error ? e.message : "Não foi possível ler a planilha."); }
+  };
+
+  /** Mede o km real dos carros em segundo plano; o plano já está na tela com o km estimado. */
+  const medirKm = async (p: Plano, versao: number) => {
+    const lotes = em<{ c: Carro; i: number }>(p.carros.map((c, i) => ({ c, i })), LOTE_KM);
+    let feitos = 0;
+    for (const parte of lotes) {
+      if (versaoPlano.current !== versao) return;
+      try {
+        const r = await chamarApi<{ km: ({ km: number; estimado: boolean } | null)[] }>("/api/extras/km", { unidade_id: p.unidade.id, sentido: p.sentido, carros: parte.map(({ c }) => c.pessoas.map((x) => x.id)) });
+        if (versaoPlano.current !== versao) return;
+        setPlano((atual) => {
+          if (!atual || versaoPlano.current !== versao) return atual;
+          const carros = atual.carros.map((c, i) => { const k = r.km[parte.findIndex((x) => x.i === i)]; return k ? { ...c, km: k.km, km_estimado: k.estimado } : c; });
+          const kmTotal = Math.round(carros.reduce((s, c) => s + (c.km ?? 0), 0) * 10) / 10;
+          return { ...atual, carros, resumo: { ...atual.resumo, km: kmTotal } };
+        });
+      } catch { /* o km estimado continua valendo */ }
+      feitos += parte.length;
+      setMedindo(`Medindo o km real: ${feitos} de ${p.carros.length} carros…`);
+    }
+    if (versaoPlano.current === versao) setMedindo("");
+  };
 
   const roteirizar = async () => {
     setErro(""); setGeradas(null);
     if (!unidadeId) { setErro("Escolha a unidade da empresa."); return; }
     if (!escolhidos.length) { setErro("Adicione pelo menos um colaborador."); return; }
     setOcupado("planejar");
+    const versao = ++versaoPlano.current;
     try {
+      // 1) Acha as casas no mapa, em lotes (quem já foi localizado nos últimos 30 dias não é buscado de novo)
+      const comCidade = escolhidos.filter((c) => c.cidade);
+      let feitos = 0;
+      for (const parte of em(comCidade.map((c) => c.id), LOTE_LOCALIZAR)) {
+        setProgresso(`Localizando endereços: ${feitos} de ${comCidade.length}…`);
+        await chamarApi("/api/extras/localizar", { ids: parte });
+        feitos += parte.length;
+        if (versaoPlano.current !== versao) return;
+      }
+      // 2) Agrupa
+      setProgresso("Agrupando nos menos carros…");
       const p = await chamarApi<Plano>("/api/extras/planejar", { colaboradores: escolhidos.map((c) => c.id), sentido, unidade_id: unidadeId, veiculo_maximo: veiculoMaximo });
+      if (versaoPlano.current !== versao) return;
       setPlano(p); setLote(crypto.randomUUID());
+      setMedindo(`Medindo o km real: 0 de ${p.carros.length} carros…`);
+      void medirKm(p, versao);
     } catch (e) { setPlano(null); setErro(e instanceof Error ? e.message : "Não foi possível roteirizar."); }
-    finally { setOcupado(""); }
+    finally { setOcupado(""); setProgresso(""); }
   };
 
   const gerar = async () => {
@@ -92,21 +157,31 @@ export default function Extras() {
     const hora = new Date(quando);
     if (!(await confirmar({
       titulo: `Gerar ${plano.carros.length} corrida(s) de extra?`,
-      texto: `${plano.resumo.passageiros} colaborador(es), ${hora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. Cada carro vai ao fornecedor mais barato do trecho.`,
+      texto: `${plano.resumo.passageiros} colaborador(es), ${hora.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. Cada carro vira uma corrida enviada ao fornecedor mais barato do trecho; os fornecedores recebem as mensagens na hora.`,
       confirmar: "Gerar e enviar",
     }))) return;
     setOcupado("gerar"); setErro("");
+    const feitas: Gerada[] = [];
     try {
-      const r = await chamarApi<{ corridas: Gerada[] }>("/api/extras/gerar", {
-        lote, sentido: plano.sentido, unidade_id: plano.unidade.id, solicitante_id: solicitanteId, data_hora: hora.toISOString(),
-        carros: plano.carros.map((c) => c.pessoas.map((p) => p.id)),
-      });
-      setGeradas(r.corridas); avisar(`${r.corridas.length} corrida(s) de extra criada(s).`);
-    } catch (e) { setErro(e instanceof Error ? e.message : "Não foi possível gerar as corridas."); }
-    finally { setOcupado(""); }
+      // Em lotes: cada corrida consulta o mapa para o preço. Se algo falhar no meio, clicar de novo continua de onde parou (mesmo lote).
+      for (const parte of em<{ c: Carro; i: number }>(plano.carros.map((c, i) => ({ c, i })), LOTE_GERAR)) {
+        setProgresso(`Gerando corridas: ${feitas.length} de ${plano.carros.length}…`);
+        const r = await chamarApi<{ corridas: Gerada[] }>("/api/extras/gerar", {
+          lote, sentido: plano.sentido, unidade_id: plano.unidade.id, solicitante_id: solicitanteId, data_hora: hora.toISOString(),
+          inicio: parte[0].i, total: plano.carros.length, carros: parte.map(({ c }) => c.pessoas.map((p) => p.id)),
+        });
+        feitas.push(...r.corridas);
+        setGeradas([...feitas]);
+      }
+      avisar(`${feitas.length} corrida(s) de extra criada(s).`);
+    } catch (e) {
+      setGeradas(feitas.length ? [...feitas] : null);
+      setErro(`${e instanceof Error ? e.message : "Não foi possível gerar as corridas."}${feitas.length ? ` Foram criadas ${feitas.length} de ${plano.carros.length}; clique em gerar de novo para continuar de onde parou.` : ""}`);
+    } finally { setOcupado(""); setProgresso(""); }
   };
 
   const semEndereco = escolhidos.filter((c) => !c.cidade).length;
+  const terminou = !!geradas && !!plano && geradas.length >= plano.carros.length;
 
   return (
     <>
@@ -128,7 +203,7 @@ export default function Extras() {
               {unidades.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
             </select>
           </Campo>
-          <Campo rotulo="Maior veículo permitido" ajuda="O app só junta mais gente num carro até este limite.">
+          <Campo rotulo="Maior veículo permitido" ajuda="O app só junta mais gente num carro até este limite (até 10 endereços diferentes por carro).">
             <select value={veiculoMaximo} onChange={(e) => { setVeiculoMaximo(e.target.value); mudou(); }}>
               {VEICULOS.map(([v, r]) => <option key={v} value={v}>{r}</option>)}
             </select>
@@ -162,8 +237,27 @@ export default function Extras() {
           {busca.trim().length >= 2 && !sugestoes.length && <p className="texto-fraco" style={{ margin: "6px 0 0" }}>Nenhum colaborador ativo com esse nome.</p>}
         </div>
 
+        <details style={{ marginTop: 12 }} open={escolhidos.length === 0}>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>Adicionar muitos de uma vez</summary>
+          <p className="texto-fraco" style={{ margin: "8px 0" }}>Cole uma lista (um nome ou código por linha) ou envie uma planilha com a coluna Nome ou Código.</p>
+          <textarea value={lista} onChange={(e) => setLista(e.target.value)} rows={5} style={{ width: "100%", maxWidth: 520 }} placeholder={"Maria da Silva\n15000923\nJoão Souza"} aria-label="Lista de colaboradores" />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button type="button" className="ghost" disabled={!lista.trim()} onClick={() => adicionarLista(linhasDaLista(lista))}>Adicionar da lista</button>
+            <label className="ghost botao-arquivo">Enviar planilha (.xlsx)
+              <input type="file" accept=".xlsx" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void lerArquivo(f); }} />
+            </label>
+          </div>
+          {relatorioLista && (
+            <div className={relatorioLista.naoAchados.length || relatorioLista.ambiguos.length ? "resumo-entrada" : "ok"} style={{ marginTop: 10 }}>
+              <div>{relatorioLista.achados.length} colaborador(es) adicionado(s){relatorioLista.repetidos ? `, ${relatorioLista.repetidos} repetido(s) ignorado(s)` : ""}.</div>
+              {relatorioLista.naoAchados.length > 0 && <div>Não encontrados ({relatorioLista.naoAchados.length}): {relatorioLista.naoAchados.slice(0, 15).join(", ")}{relatorioLista.naoAchados.length > 15 ? "…" : ""}</div>}
+              {relatorioLista.ambiguos.length > 0 && <div>Mais de um colaborador para ({relatorioLista.ambiguos.length}): {relatorioLista.ambiguos.slice(0, 10).map((a) => a.texto).join(", ")}{relatorioLista.ambiguos.length > 10 ? "…" : ""}. Escolha pelo campo de busca.</div>}
+            </div>
+          )}
+        </details>
+
         {escolhidos.length > 0 && (
-          <div className="tw" style={{ marginTop: 14 }}>
+          <div className="tw" style={{ marginTop: 14, maxHeight: 360, overflow: "auto" }}>
             <table>
               <thead><tr><th>Colaborador</th><th>Endereço</th><th>Cidade / UF</th><th>Bairro</th><th /></tr></thead>
               <tbody>{escolhidos.map((c) => (
@@ -181,7 +275,8 @@ export default function Extras() {
         {semEndereco > 0 && <p className="err" style={{ marginTop: 12 }}>{semEndereco} colaborador(es) sem cidade no cadastro: importe a planilha de Ativos com endereço (Cadastros › Importação de Ativos) antes de roteirizar.</p>}
         <div className="row" style={{ marginTop: 14 }}>
           <button type="button" className="pri" disabled={!!ocupado || !escolhidos.length} onClick={roteirizar}>{ocupado === "planejar" ? "Roteirizando…" : "Roteirizar"}</button>
-          {escolhidos.length > 0 && <button type="button" className="ghost" disabled={!!ocupado} onClick={() => { setEscolhidos([]); mudou(); }}>Limpar lista</button>}
+          {escolhidos.length > 0 && <button type="button" className="ghost" disabled={!!ocupado} onClick={() => { setEscolhidos([]); setRelatorioLista(null); mudou(); }}>Limpar lista</button>}
+          {progresso && <span className="texto-fraco" role="status">{progresso}</span>}
         </div>
       </section>
 
@@ -192,20 +287,21 @@ export default function Extras() {
           <div className="kpis">
             <KpiCard value={plano.resumo.carros} label="Carros" />
             <KpiCard value={plano.resumo.passageiros} label="Colaboradores" />
-            <KpiCard value={`${plano.resumo.km.toLocaleString("pt-BR")} km`} label="Km rodados (soma dos carros)" />
-            <KpiCard value={brl(plano.resumo.valor)} label={plano.resumo.semPreco ? `Custo (${plano.resumo.semPreco} sem preço)` : "Custo pela tabela"} alert={plano.resumo.semPreco > 0} />
+            <KpiCard value={`${plano.resumo.km.toLocaleString("pt-BR")} km`} label={medindo ? "Km (estimado, medindo o real)" : "Km rodados (soma dos carros)"} />
+            <KpiCard value={brl(plano.resumo.valor)} label={plano.resumo.semPreco ? `Custo (${plano.resumo.semPreco} carro(s) sem preço)` : "Custo pela tabela"} alert={plano.resumo.semPreco > 0} />
           </div>
+          {medindo && <p className="texto-fraco" role="status" style={{ margin: "0 0 12px" }}>{medindo}</p>}
           {plano.avisos.length > 0 && <div className="resumo-entrada" style={{ marginBottom: 14 }}>{plano.avisos.map((a) => <div key={a}>{a}</div>)}</div>}
 
           {plano.carros.map((c, i) => (
-            <div className="card" key={i} style={{ marginBottom: 12 }}>
-              <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                <h3 style={{ margin: 0 }}>Carro {i + 1} <Badge>{ROTULO_VEICULO[c.veiculo] ?? c.veiculo} · {c.passageiros} pessoa(s)</Badge></h3>
-                <div className="texto-fraco">
+            <details className="card" key={i} style={{ marginBottom: 10 }} open={plano.carros.length <= 8}>
+              <summary style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                <span><strong>Carro {i + 1}</strong> <Badge>{ROTULO_VEICULO[c.veiculo] ?? c.veiculo} · {c.passageiros} pessoa(s) · {c.paradas} parada(s)</Badge></span>
+                <span className="texto-fraco">
                   {c.km != null ? `${c.km.toLocaleString("pt-BR")} km${c.km_estimado ? " (estimado)" : ""}` : "km não calculado"} · {c.valor != null ? <strong>{brl(c.valor)}</strong> : <Badge variant="warning">Sem preço na tabela</Badge>}
                   {c.fornecedor && <> · {c.fornecedor}</>}
-                </div>
-              </div>
+                </span>
+              </summary>
               <ol style={{ margin: "12px 0 0", paddingLeft: 20 }}>
                 <li className="texto-fraco">{plano.sentido === "saida" ? `Sai de ${plano.unidade.nome}` : `Chega em ${plano.unidade.nome} no fim do percurso`}</li>
                 {c.pessoas.map((p) => (
@@ -213,22 +309,22 @@ export default function Extras() {
                 ))}
               </ol>
               {c.descricao_preco && <p className="texto-fraco" style={{ margin: "8px 0 0", fontSize: 13 }}>Preço da tabela: {c.descricao_preco}</p>}
-            </div>
+            </details>
           ))}
 
-          {!geradas && (
+          {!terminou && (
             <div className="row">
-              <button type="button" className="pri" disabled={!!ocupado} onClick={gerar}>{ocupado === "gerar" ? "Gerando…" : `Gerar ${plano.carros.length} corrida(s) e enviar aos fornecedores`}</button>
+              <button type="button" className="pri" disabled={!!ocupado} onClick={gerar}>{ocupado === "gerar" ? "Gerando…" : geradas?.length ? `Continuar: gerar as ${plano.carros.length - geradas.length} corridas que faltam` : `Gerar ${plano.carros.length} corrida(s) e enviar aos fornecedores`}</button>
               <span className="texto-fraco" style={{ fontSize: 13 }}>Informe antes a data e hora e a pessoa responsável. As corridas seguem o fluxo normal, inclusive a aprovação do planejamento.</span>
             </div>
           )}
         </section>
       )}
 
-      {geradas && (
+      {geradas && geradas.length > 0 && (
         <section className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginTop: 0 }}>Corridas criadas</h3>
-          <div className="tw">
+          <h3 style={{ marginTop: 0 }}>Corridas criadas <Badge>{geradas.length}</Badge></h3>
+          <div className="tw" style={{ maxHeight: 420, overflow: "auto" }}>
             <table>
               <thead><tr><th>Protocolo</th><th>Pessoas</th><th>Fornecedor</th><th /></tr></thead>
               <tbody>{geradas.map((g) => (

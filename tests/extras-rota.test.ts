@@ -63,9 +63,41 @@ describe("roteirização de extras", () => {
     expect(semPreco.semPreco).toBe(true);
   });
 
-  it("no máximo 5 endereços diferentes por carro", () => {
-    const muitos = Array.from({ length: 8 }, (_, i) => pessoa(String(i + 10), `P${i}`, "Toledo", "Centro", -22.74 - i * 0.001, -46.37));
+  it("no máximo 10 endereços diferentes por carro", () => {
+    const muitos = Array.from({ length: 14 }, (_, i) => pessoa(String(i + 10), `P${i}`, "Toledo", "Centro", -22.74 - i * 0.001, -46.37));
     const carros = planejarExtras({ pessoas: muitos, unidade, tabelas, veiculoMaximo: "van", sentido: "saida" });
-    expect(carros.every((c) => c.paradas <= 5)).toBe(true);
+    expect(carros.every((c) => c.paradas <= 10)).toBe(true);
+  });
+});
+
+import { casarLista, linhasDaLista } from "../lib/extras-lista";
+describe("lista de colaboradores", () => {
+  const cad = [
+    { id: "1", codigo: "15000923", nome: "ADERBAL BATISTA BORGES FILHO" }, { id: "2", codigo: "15001057", nome: "ADILSON DE MELO CARDOSO" },
+    { id: "3", codigo: "15002069", nome: "ADRIANA DE OLIVEIRA MARTINS" }, { id: "4", codigo: "15001775", nome: "ADRIANA OLIVEIRA FERREIRA CLAUDINO" },
+  ];
+  it("casa por código, nome exato e nome único; separa ambíguos e não achados", () => {
+    const r = casarLista(linhasDaLista("15000923\nadilson de melo cardoso\nAderbal\nadriana\nFulano Inexistente\n15000923"), cad);
+    expect(r.achados.map((c) => c.id)).toEqual(["1", "2"]);
+    expect(r.ambiguos[0].opcoes.map((c) => c.id)).toEqual(["3", "4"]);
+    expect(r.naoAchados).toEqual(["Fulano Inexistente"]);
+    expect(r.repetidos).toBe(2); // o código 15000923 digitado duas vezes e "Aderbal", que é a mesma pessoa
+  });
+  it("ignora quem já está na lista da extra", () => {
+    expect(casarLista(["15001057"], cad, new Set(["2"])).achados).toHaveLength(0);
+  });
+});
+
+describe("escala", () => {
+  it("400 pessoas viram poucos carros, cada uma uma vez só", () => {
+    const cidades = [["Extrema", -22.854, -46.318], ["Toledo", -22.74, -46.37], ["Vargem", -22.88, -46.4]] as const;
+    const ps = Array.from({ length: 400 }, (_, i) => { const [c, la, ln] = cidades[i % 3]; return pessoa(String(i), `P${i}`, c, "Centro", la + ((i * 37) % 100) / 5000, ln + ((i * 53) % 100) / 5000); });
+    const tab: TabelaFornecedor[] = [{ id: "A", nome: "A", linhas: ["Extrema", "Toledo", "Vargem"].flatMap((c) => [linha("A", c, "passeio", "unico", 50), linha("A", c, "passeio", "diversos", 60), linha("A", c, "spin", "diversos", 80), linha("A", c, "van", "diversos", 100)]) }];
+    const carros = planejarExtras({ pessoas: ps, unidade, tabelas: tab, veiculoMaximo: "van", sentido: "saida" });
+    const ids = carros.flatMap((c) => c.pessoas.map((p) => p.id));
+    expect(new Set(ids).size).toBe(400);
+    expect(ids).toHaveLength(400);
+    expect(carros.length).toBeLessThan(120);
+    expect(carros.every((c) => c.paradas <= 10 && c.passageiros <= 15)).toBe(true);
   });
 });
