@@ -4,9 +4,9 @@ import type { Corrida, Fornecedor, Repo, Saida } from "./tipos";
 import type { OrigemEvento } from "../status";
 import { brl, formatarDataHora, formatarHora, partesSP } from "../datas";
 import { textoTemplate } from "../whatsapp/templates";
+import { urlApp } from "../whatsapp/link";
 
-const URL_PAINEL = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-const linkCorrida = (c: Corrida) => (URL_PAINEL ? `${URL_PAINEL}/corridas?id=${c.id}` : "");
+const linkCorrida = (c: Corrida) => (urlApp() ? `${urlApp()}/corridas?id=${c.id}` : "");
 
 /** 64 caracteres aleatórios (mesmo formato de fn_novo_token no banco). */
 export const novoToken = () => (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");

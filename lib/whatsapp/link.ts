@@ -12,10 +12,15 @@ export type LinkWhatsApp = { rotulo: string; url: string };
 export const linkWhatsApp = (telefone: string, texto: string) =>
   `https://wa.me/${normalizarTelefone(telefone)}?text=${encodeURIComponent(texto)}`;
 
-/** Endereço público do app: NEXT_PUBLIC_APP_URL ou o domínio da própria requisição. */
+/**
+ * Endereço público do app, sempre completo (https://…): NEXT_PUBLIC_APP_URL, depois o domínio de produção que a Vercel informa,
+ * depois o domínio da própria requisição.
+ */
 export function urlApp(req?: Request): string {
-  const env = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-  if (env) return env;
+  const env = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/$/, "");
+  if (env) return /^https?:\/\//.test(env) ? env : `https://${env}`;
+  const vercel = (process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || "").trim();
+  if (vercel) return `https://${vercel.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
   return req ? new URL(req.url).origin : "";
 }
 

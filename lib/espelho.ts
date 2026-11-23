@@ -2,8 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Saida } from "./bot/tipos";
 import { brl, formatarDataHora } from "./datas";
 import { nomeCompetencia } from "./espelho-status";
+import { urlApp } from "./whatsapp/link";
 
-const URL_APP = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
 type Esp = { qtd?: number; id: string; fornecedor_id: string; competencia: string; total: number; versao: number; prazo_em: string | null; nf_valor?: number | null; nf_numero?: string | null };
 type Forn = { nome: string; telefone_whatsapp: string; token_portal: string };
 
@@ -26,7 +26,7 @@ export async function avisoFornecedor(db: SupabaseClient, espelhoId: string, tip
   const { esp, forn } = d;
   const mes = nomeCompetencia(esp.competencia);
   const prazo = esp.prazo_em ? formatarDataHora(esp.prazo_em).replace(" ", " às ") : "";
-  const url = `${URL_APP}${linkPortal(forn, esp)}`;
+  const url = `${urlApp()}${linkPortal(forn, esp)}`;
   const corridas = esp.qtd ? `${esp.qtd} corrida${esp.qtd > 1 ? "s" : ""}` : "";
   const texto = {
     gerado: [
@@ -80,7 +80,7 @@ export async function avisoPlanejamento(db: SupabaseClient, espelhoId: string, t
   const titulo = `Espelho ${nomeCompetencia(d.esp.competencia)} · ${d.forn.nome}`;
   const link = `/conciliacao?espelho=${espelhoId}#espelhos`;
   return fones.map((para) => ({
-    para, texto: `${titulo}: ${texto}${URL_APP ? `\n${URL_APP}${link}` : ""}`, link,
+    para, texto: `${titulo}: ${texto}${urlApp() ? `\n${urlApp()}${link}` : ""}`, link,
     template: { nome: "alerta_corrida_planejamento", parametros: [titulo, texto, "-", d.forn.nome], sempre: true },
   }));
 }
