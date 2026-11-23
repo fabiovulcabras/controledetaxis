@@ -274,7 +274,7 @@ export default function Corridas() {
   );
 }
 
-type Evento = { id: string; status_anterior: StatusCorrida | null; status_novo: StatusCorrida; origem: string; observacao: string | null; criado_em: string; profiles?: { nome: string } | null };
+type Evento = { id: string; status_anterior: StatusCorrida | null; status_novo: StatusCorrida; origem: string; observacao: string | null; etapa?: string | null; criado_em: string; profiles?: { nome: string } | null };
 type Mensagem = { id: string; direcao: string; canal: string; telefone: string; template: string | null; conteudo: any; status_envio: string | null; erro: string | null; criado_em: string };
 type AcaoForm = null | "contestar" | "reabrir" | "cancelar" | "reenviar" | "ajustar_valor";
 const ORIGENS: Record<string, string> = { bot: "Bot", fornecedor: "Fornecedor", planejamento: "Planejamento", sistema: "Sistema" };
@@ -471,7 +471,7 @@ function Detalhe({ id, fornecedores, podeAgir, onFechar, onMudou }: {
                 <div className="evento-quando"><span>{formatarDataHora(ev.criado_em).slice(6)}</span><small>{formatarDataHora(ev.criado_em).slice(0, 5)}</small></div>
                 <div className="evento-corpo">
                   <div className="evento-titulo">
-                    <span className="evento-acao">{ev.status_anterior && ev.status_anterior !== ev.status_novo ? `${STATUS[ev.status_anterior].rotulo} → ${STATUS[ev.status_novo].rotulo}` : ev.status_anterior ? "Atualização" : STATUS[ev.status_novo].rotulo}</span>
+                    <span className="evento-acao">{ev.etapa ? ev.etapa : ev.status_anterior && ev.status_anterior !== ev.status_novo ? `${STATUS[ev.status_anterior].rotulo} → ${STATUS[ev.status_novo].rotulo}` : ev.status_anterior ? "Atualização" : STATUS[ev.status_novo].rotulo}</span>
                     <span className="evento-area">{ORIGENS[ev.origem] ?? ev.origem}</span>
                     {ev.profiles?.nome && <span className="evento-quem">{ev.profiles.nome}</span>}
                   </div>

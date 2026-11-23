@@ -117,3 +117,12 @@ select ok('histórico completo', (select array_agg(tipo order by criado_em, tipo
 select como(:'con');
 select ok('consulta lê o espelho', (select count(*) = 1 from espelhos));
 reset role;
+
+select '== Etapas do espelho na linha do tempo da corrida';
+select ok('corridas do espelho ganham as etapas', (
+  select bool_and(et.etapas @> array['Espelho gerado','Espelho reenviado ao fornecedor','Espelho aprovado automaticamente','NF enviada pelo fornecedor','Pagamento realizado'])
+  from espelho_itens i, lateral (select array_agg(etapa) as etapas from corrida_eventos where corrida_id = i.corrida_id and etapa is not null) et
+  where i.espelho_id = current_setting('t.esp')::uuid));
+select ok('etapa não muda o status da corrida', (select bool_and(status_anterior = status_novo) from corrida_eventos where etapa is not null));
+select ok('contestação aparece só nas corridas contestadas (2 de 3)', (
+  select count(distinct corrida_id) = 2 from corrida_eventos where etapa = 'Fornecedor contestou o valor'));
