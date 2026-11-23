@@ -101,3 +101,24 @@ describe("escala", () => {
     expect(carros.every((c) => c.paradas <= 10 && c.passageiros <= 15)).toBe(true);
   });
 });
+
+describe("preço pela parada mais cara", () => {
+  const unidade = { lat: -22.85, lng: -46.32 };
+  const mk = (id: string, cidade: string, lat: number, lng: number) => ({
+    id, nome: id, endereco: `Rua ${id}`, bairro: null, cidade, uf: "MG", ponto: { lat, lng }, onde: { cidade, bairros: [], texto: `Rua ${id}` },
+  });
+  const linha = (cidade: string, valor: number) => ({ cidade, bairro: null, apelidos: [], modalidade: "qualquer", veiculo: "passeio", valor } as any);
+  it("carro misto é preço da cidade mais cara, não da mais longe", () => {
+    const pessoas = [mk("A", "Bragança", -22.95, -46.54), mk("B", "Extrema", -22.86, -46.33)];
+    const tabelas = [{ id: "f1", nome: "F1", linhas: [linha("Bragança", 124), linha("Extrema", 50)] }];
+    const carros = planejarExtras({ pessoas, unidade, tabelas, veiculoMaximo: "passeio", sentido: "saida" });
+    const junto = carros.find((c) => c.passageiros === 2);
+    if (junto) { expect(junto.valor).toBe(124); expect(junto.precoPor).toBe("A"); }
+  });
+  it("fornecedor sem preço para alguma parada é excluído", () => {
+    const pessoas = [mk("A", "Bragança", -22.95, -46.54), mk("B", "Extrema", -22.86, -46.33)];
+    const tabelas = [{ id: "f1", nome: "F1", linhas: [linha("Bragança", 124)] }];
+    const carros = planejarExtras({ pessoas, unidade, tabelas, veiculoMaximo: "passeio", sentido: "saida" });
+    expect(carros.every((c) => c.passageiros === 1)).toBe(true);
+  });
+});

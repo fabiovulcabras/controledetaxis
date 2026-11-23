@@ -7,7 +7,6 @@
  * Distâncias aqui são estimadas (linha reta × 1,3), o bastante para comparar agrupamentos.
  */
 import { distanciaReta, type Ponto } from "./distancia";
-import { ordenarDestinos } from "./multidestino";
 import { escolherPrecoTrecho, normalizar, veiculoPorPassageiros, type LinhaPreco, type Onde, type Veiculo } from "./precos";
 
 export type PessoaExtra = {
@@ -28,6 +27,8 @@ export type CarroPlano = {
   semPreco: boolean;
   /** Algum endereço não foi achado no mapa: o carro vai sozinho, sem km estimado. */
   semLocal: boolean;
+  /** Pessoa (parada) que define o preço: a de maior valor na tabela, que vira o destino final do carro. */
+  precoPor: string | null;
 };
 
 /** Veículo máximo que o planejamento aceita usar. */
@@ -48,25 +49,23 @@ const chaveParada = (p: PessoaExtra) => normalizar([p.endereco, p.bairro, p.cida
 
 type Avaliado = {
   pessoas: PessoaExtra[]; ordem: PessoaExtra[]; paradas: number; kmEstimado: number | null;
-  custo: number; valor: number | null; fornecedor: TabelaFornecedor | null; descricao: string | null; semLocal: boolean;
+  custo: number; valor: number | null; fornecedor: TabelaFornecedor | null; descricao: string | null; semLocal: boolean; precoPor: string | null;
 };
-type Contexto = { unidade: Ponto; tabelas: TabelaFornecedor[]; capacidade: number; preco: (onde: Onde, n: number, varias: boolean) => ReturnType<typeof melhorPreco>; memo: Map<string, Avaliado | null> };
+type Contexto = { unidade: Ponto; tabelas: TabelaFornecedor[]; capacidade: number; preco: (onde: Onde, n: number, varias: boolean) => (PrecoForn | null)[]; memo: Map<string, Avaliado | null> };
 
-/** Menor valor da tabela entre os fornecedores para o trecho que vai até a casa mais longe. */
-function melhorPreco(tabelas: TabelaFornecedor[], onde: Onde, passageiros: number, variasParadas: boolean) {
-  let melhor: { valor: number; fornecedor: TabelaFornecedor; descricao: string } | null = null;
-  for (const t of tabelas) {
-    if (!t.linhas.length) continue;
+type PrecoForn = { valor: number; descricao: string };
+/** Preço de cada fornecedor (na ordem de `tabelas`) para o trecho até esta casa; null quando o fornecedor não tem preço. */
+function precosDaParada(tabelas: TabelaFornecedor[], onde: Onde, passageiros: number, variasParadas: boolean): (PrecoForn | null)[] {
+  return tabelas.map((t) => {
+    if (!t.linhas.length) return null;
     const p = escolherPrecoTrecho(t.linhas, [onde], passageiros, variasParadas);
-    if (p && (!melhor || p.valor < melhor.valor - 1e-9)) melhor = { valor: p.valor, fornecedor: t, descricao: p.descricao };
-  }
-  return melhor;
+    return p ? { valor: p.valor, descricao: p.descricao } : null;
+  });
 }
 
-/** Final = a casa mais longe da unidade; as outras pelo vizinho mais próximo, melhoradas com 2-opt (pontas fixas). */
-function ordemAproximada(daOrigem: number[], entre: number[][]): { ordem: number[]; final: number; km: number } {
+/** Final fixo (a casa que define o preço); as outras pelo vizinho mais próximo, melhoradas com 2-opt (pontas fixas). */
+function ordemAproximada(daOrigem: number[], entre: number[][], final: number): { ordem: number[]; final: number; km: number } {
   const n = daOrigem.length;
-  const final = daOrigem.reduce((m, v, i) => (v > daOrigem[m] ? i : m), 0);
   const d = (a: number, b: number) => (a === -1 ? daOrigem[b] : b === -1 ? daOrigem[a] : entre[a][b]);
   const pend = new Set([...Array(n).keys()].filter((i) => i !== final));
   const caminho = [-1];
@@ -88,13 +87,37 @@ function ordemAproximada(daOrigem: number[], entre: number[][]): { ordem: number
   return { ordem, final, km: caminho.slice(1).reduce((s, x, k) => s + d(caminho[k], x), 0) };
 }
 
-/** Ordem das casas na saída (da unidade para fora): a mais longe é a última; as outras na ordem de menor km. */
-function ordenarSaida(unidade: Ponto, pessoas: PessoaExtra[]): { ordem: PessoaExtra[]; km: number } {
+/** Ordem exata (todas as permutações das paradas antes do final) para poucas paradas. */
+function ordemExata(daOrigem: number[], entre: number[][], final: number): { ordem: number[]; km: number } {
+  const outros = daOrigem.map((_, i) => i).filter((i) => i !== final);
+  let melhor: { ordem: number[]; km: number } | null = null;
+  const perm = (resto: number[], atual: number[], kmAtual: number) => {
+    if (melhor && kmAtual >= melhor.km) return;
+    if (!resto.length) {
+      const ultimo = atual.length ? atual[atual.length - 1] : -1;
+      const total = kmAtual + (ultimo === -1 ? daOrigem[final] : entre[ultimo][final]);
+      if (!melhor || total < melhor.km) melhor = { ordem: [...atual, final], km: total };
+      return;
+    }
+    for (let k = 0; k < resto.length; k++) {
+      const i = resto[k];
+      const ultimo = atual.length ? atual[atual.length - 1] : -1;
+      perm([...resto.slice(0, k), ...resto.slice(k + 1)], [...atual, i], kmAtual + (ultimo === -1 ? daOrigem[i] : entre[ultimo][i]));
+    }
+  };
+  perm(outros, [], 0);
+  return melhor!;
+}
+
+/** Ordem das casas na saída (da unidade para fora) com a parada `finalPessoa` por último; as outras na ordem de menor km. */
+function ordenarSaida(unidade: Ponto, pessoas: PessoaExtra[], finalPessoa: PessoaExtra | null): { ordem: PessoaExtra[]; km: number } {
   const paradas: PessoaExtra[] = [];
   for (const p of pessoas) if (!paradas.some((x) => chaveParada(x) === chaveParada(p))) paradas.push(p);
   const daOrigem = paradas.map((p) => km(unidade, p.ponto!));
   const entre = paradas.map((a) => paradas.map((b) => (a === b ? 0 : km(a.ponto!, b.ponto!))));
-  const o = paradas.length <= PARADAS_EXATO ? ordenarDestinos(daOrigem, entre) : ordemAproximada(daOrigem, entre);
+  let final = finalPessoa ? paradas.findIndex((x) => chaveParada(x) === chaveParada(finalPessoa)) : -1;
+  if (final < 0) final = daOrigem.reduce((m, v, i) => (v > daOrigem[m] ? i : m), 0);
+  const o = paradas.length <= PARADAS_EXATO ? ordemExata(daOrigem, entre, final) : ordemAproximada(daOrigem, entre, final);
   const ordemParadas = o.ordem.map((i) => paradas[i]);
   const ordem = ordemParadas.flatMap((x) => pessoas.filter((p) => chaveParada(p) === chaveParada(x)));
   return { ordem, km: o.km };
@@ -113,14 +136,28 @@ function avaliarSemCache(pessoas: PessoaExtra[], ctx: Contexto): Avaliado | null
   if (pessoas.some((p) => !p.ponto)) {
     // Sem localização não dá para juntar: só vale sozinho
     if (pessoas.length > 1) return null;
-    return { pessoas, ordem: pessoas, paradas: 1, kmEstimado: null, custo: SEM_PRECO, valor: null, fornecedor: null, descricao: null, semLocal: true };
+    return { pessoas, ordem: pessoas, paradas: 1, kmEstimado: null, custo: SEM_PRECO, valor: null, fornecedor: null, descricao: null, semLocal: true, precoPor: null };
   }
-  const { ordem, km: kmRota } = ordenarSaida(ctx.unidade, pessoas);
-  const maisLonge = ordem[ordem.length - 1];
-  const p = ctx.preco(maisLonge.onde, pessoas.length, paradas > 1);
+  // Preço: cada fornecedor precisa ter preço para TODAS as paradas do carro; vale a parada mais cara (o destino final de tabela).
+  const reps: PessoaExtra[] = [];
+  for (const p of pessoas) if (!reps.some((x) => chaveParada(x) === chaveParada(p))) reps.push(p);
+  const porParada = reps.map((r) => ctx.preco(r.onde, pessoas.length, paradas > 1));
+  let melhor: { forn: number; valor: number; idx: number } | null = null;
+  ctx.tabelas.forEach((_, f) => {
+    let maior = -1, idx = -1;
+    for (let k = 0; k < reps.length; k++) {
+      const v = porParada[k][f];
+      if (!v) return;
+      if (v.valor > maior + 1e-9 || (Math.abs(v.valor - maior) < 1e-9 && km(ctx.unidade, reps[k].ponto!) > km(ctx.unidade, reps[idx].ponto!))) { maior = v.valor; idx = k; }
+    }
+    if (idx >= 0 && (!melhor || maior < melhor.valor - 1e-9)) melhor = { forn: f, valor: maior, idx };
+  });
+  const m = melhor as { forn: number; valor: number; idx: number } | null;
+  const { ordem, km: kmRota } = ordenarSaida(ctx.unidade, pessoas, m ? reps[m.idx] : null);
   return {
     pessoas, ordem, paradas, kmEstimado: Math.round(kmRota * 100) / 100,
-    custo: p ? p.valor : SEM_PRECO, valor: p?.valor ?? null, fornecedor: p?.fornecedor ?? null, descricao: p?.descricao ?? null, semLocal: false,
+    custo: m ? m.valor : SEM_PRECO, valor: m?.valor ?? null, fornecedor: m ? ctx.tabelas[m.forn] : null,
+    descricao: m ? porParada[m.idx][m.forn]!.descricao : null, semLocal: false, precoPor: m ? reps[m.idx].nome : null,
   };
 }
 
@@ -146,12 +183,12 @@ function vizinhos(centros: (Ponto | null)[], i: number, k: number): number[] {
 const VIZINHOS = 8;
 
 export function planejarExtras(op: { pessoas: PessoaExtra[]; unidade: Ponto; tabelas: TabelaFornecedor[]; veiculoMaximo: Veiculo; sentido: Sentido }): CarroPlano[] {
-  const precos = new Map<string, ReturnType<typeof melhorPreco>>();
+  const precos = new Map<string, (PrecoForn | null)[]>();
   const ctx: Contexto = {
     unidade: op.unidade, tabelas: op.tabelas, capacidade: CAPACIDADE[op.veiculoMaximo], memo: new Map(),
     preco: (onde, n, varias) => {
       const chave = `${onde.cidade}|${(onde.bairros ?? []).join(",")}|${onde.texto}|${n}|${varias}`;
-      if (!precos.has(chave)) precos.set(chave, melhorPreco(op.tabelas, onde, n, varias));
+      if (!precos.has(chave)) precos.set(chave, precosDaParada(op.tabelas, onde, n, varias));
       return precos.get(chave)!;
     },
   };
@@ -226,7 +263,7 @@ export function planejarExtras(op: { pessoas: PessoaExtra[]; unidade: Ponto; tab
     pessoas: op.sentido === "entrada" ? [...g.ordem].reverse() : g.ordem,
     passageiros: g.pessoas.length, paradas: g.paradas, veiculo: veiculoPorPassageiros(g.pessoas.length),
     kmEstimado: g.kmEstimado, valor: g.valor, fornecedorId: g.fornecedor?.id ?? null, fornecedorNome: g.fornecedor?.nome ?? null,
-    descricaoPreco: g.descricao, semPreco: g.valor == null, semLocal: g.semLocal,
+    descricaoPreco: g.descricao, semPreco: g.valor == null, semLocal: g.semLocal, precoPor: g.precoPor,
   }));
   // Ordem estável de leitura: o carro que vai mais longe primeiro
   return carros.sort((a, b) => (b.kmEstimado ?? Infinity) - (a.kmEstimado ?? Infinity) || a.pessoas[0].nome.localeCompare(b.pessoas[0].nome, "pt-BR"));

@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Ponto } from "./distancia";
+import { distanciaReta, type Ponto } from "./distancia";
 import { coordenadasDoTexto } from "./km-corrida";
 import type { PessoaExtra } from "./extras-rota";
 
@@ -21,22 +21,38 @@ export function textoEndereco(c: ColaboradorDb): string {
  * Acha a casa no mapa, da busca mais exata para a mais aberta: endereço completo, depois bairro e cidade, depois só a cidade.
  * `precisao` diz até onde deu para chegar (cidade e bairro valem para o preço; o km fica menos exato).
  */
+/** Casa a mais de tantos km do centro da cidade do cadastro é endereço achado no lugar errado (cidade/bairro homônimo). */
+export const RAIO_CIDADE_KM = 30;
+const centrosDeCidade = new Map<string, Promise<Ponto | null>>();
+function centroDaCidade(c: ColaboradorDb): Promise<Ponto | null> {
+  const texto = cidadeUf(c) + ", Brasil";
+  if (!centrosDeCidade.has(texto)) {
+    centrosDeCidade.set(texto, coordenadasDoTexto(texto).then((g) => (g ? { lat: g.lat, lng: g.lng } : null)).catch(() => null));
+  }
+  return centrosDeCidade.get(texto)!;
+}
+
 export async function localizarCasa(c: ColaboradorDb): Promise<{ ponto: Ponto | null; precisao: Precisao }> {
+  if (!c.cidade) return { ponto: null, precisao: "nenhuma" };
+  const centro = await centroDaCidade(c);
   const tentativas: [string, Precisao][] = [
     [textoEndereco(c) + ", Brasil", "endereco"],
     [[c.bairro, cidadeUf(c)].filter(Boolean).join(", ") + ", Brasil", "bairro"],
-    [cidadeUf(c) + ", Brasil", "cidade"],
   ];
   const vistos = new Set<string>();
   for (const [texto, precisao] of tentativas) {
-    if (!c.cidade || vistos.has(texto)) continue;
+    if (vistos.has(texto)) continue;
     if (precisao === "endereco" && !c.endereco) continue;
     if (precisao === "bairro" && !c.bairro) continue;
     vistos.add(texto);
     const g = await coordenadasDoTexto(texto);
-    if (g) return { ponto: { lat: g.lat, lng: g.lng }, precisao };
+    if (!g) continue;
+    const ponto = { lat: g.lat, lng: g.lng };
+    // Fora da cidade do cadastro: descarta e tenta uma busca mais geral
+    if (centro && distanciaReta(centro, ponto) > RAIO_CIDADE_KM) continue;
+    return { ponto, precisao };
   }
-  return { ponto: null, precisao: "nenhuma" };
+  return centro ? { ponto: centro, precisao: "cidade" } : { ponto: null, precisao: "nenhuma" };
 }
 
 /** Roda `fn` em todos os itens, `n` por vez (o serviço de mapas não gosta de rajada). */

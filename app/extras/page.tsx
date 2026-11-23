@@ -15,7 +15,7 @@ type Opcao = { id: string; nome: string };
 type Pessoa = { id: string; nome: string; endereco: string; bairro: string | null; cidade: string | null; uf: string | null; localizacao: string };
 type Carro = {
   passageiros: number; paradas: number; veiculo: string; km: number | null; km_estimado: boolean; valor: number | null; fornecedor: string | null;
-  descricao_preco: string | null; sem_preco: boolean; sem_local: boolean; pessoas: Pessoa[];
+  descricao_preco: string | null; sem_preco: boolean; sem_local: boolean; km_est: number | null; preco_por: string | null; cidades: string[]; pessoas: Pessoa[];
 };
 type Plano = { unidade: { id: string; nome: string; endereco: string }; sentido: "entrada" | "saida"; carros: Carro[]; resumo: { carros: number; passageiros: number; km: number; valor: number; semPreco: number }; avisos: string[] };
 type Gerada = { protocolo: string; fornecedor: string | null; passageiros: number; aviso?: string; whatsapp?: string };
@@ -302,6 +302,16 @@ export default function Extras() {
                   {c.fornecedor && <> · {c.fornecedor}</>}
                 </span>
               </summary>
+              <small className="bloco texto-fraco" style={{ marginTop: 8 }}>
+                {c.cidades.length > 0 && <>Cidades: {c.cidades.join(", ")}</>}
+                {c.preco_por && <> · Preço definido por {c.preco_por} (destino mais caro)</>}
+              </small>
+              {c.km != null && !c.km_estimado && c.paradas > 0 && (() => {
+                const est = c.km_est;
+                return est != null && c.km > est * 1.8 && c.km - est > 10
+                  ? <p className="err" style={{ marginTop: 8 }}>Atenção: o km real ({c.km.toLocaleString("pt-BR")} km) ficou bem acima do estimado ({est.toLocaleString("pt-BR")} km). Confira os endereços deste carro.</p>
+                  : null;
+              })()}
               <ol style={{ margin: "12px 0 0", paddingLeft: 20 }}>
                 <li className="texto-fraco">{plano.sentido === "saida" ? `Sai de ${plano.unidade.nome}` : `Chega em ${plano.unidade.nome} no fim do percurso`}</li>
                 {c.pessoas.map((p) => (

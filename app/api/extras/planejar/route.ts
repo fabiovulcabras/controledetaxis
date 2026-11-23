@@ -71,8 +71,9 @@ export async function POST(req: Request) {
       sentido,
       carros: carros.map((c) => ({
         passageiros: c.passageiros, paradas: c.paradas, veiculo: c.veiculo,
-        km: c.kmEstimado, km_estimado: true,
-        valor: c.valor, fornecedor: c.fornecedorNome, descricao_preco: c.descricaoPreco, sem_preco: c.semPreco, sem_local: c.semLocal,
+        km: c.kmEstimado, km_estimado: true, km_est: c.kmEstimado,
+        valor: c.valor, fornecedor: c.fornecedorNome, descricao_preco: c.descricaoPreco, sem_preco: c.semPreco, sem_local: c.semLocal, preco_por: c.precoPor,
+        cidades: [...new Set(c.pessoas.map((p) => p.cidade).filter(Boolean))],
         pessoas: c.pessoas.map((p) => {
           const c0 = porId.get(p.id)!;
           return { id: p.id, nome: p.nome, endereco: textoEndereco(c0), bairro: p.bairro, cidade: p.cidade, uf: p.uf, localizacao: ROTULO_PRECISAO[(pontoGuardado(c0) ? c0.geo_precisao : null) ?? "nenhuma"] };
