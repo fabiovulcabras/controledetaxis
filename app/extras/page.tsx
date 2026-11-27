@@ -9,6 +9,8 @@ import { Campo, TopoPagina, normalizarTexto } from "@/components/Formulario";
 import { useRetorno } from "@/components/Retorno";
 import { lerPlanilhaXlsx } from "@/lib/xlsx-leitura";
 import { casarLista, linhasDaLista, type ResultadoLista } from "@/lib/extras-lista";
+import { baixarXlsx } from "@/lib/xlsx";
+import { COLUNAS_PROPOSTA, linhasDaProposta, nomeArquivoProposta } from "@/lib/extras-exportacao";
 
 type Colab = { id: string; codigo: string; nome: string; endereco: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null };
 type Opcao = { id: string; nome: string };
@@ -180,6 +182,14 @@ export default function Extras() {
     } finally { setOcupado(""); setProgresso(""); }
   };
 
+  const exportar = () => {
+    if (!plano) return;
+    baixarXlsx(nomeArquivoProposta(plano.sentido, quando), "Roteirização", COLUNAS_PROPOSTA, linhasDaProposta({
+      sentido: plano.sentido, unidade: plano.unidade.nome, quando, carros: plano.carros,
+      colaboradores: new Map(escolhidos.map((c) => [c.id, c])),
+    }));
+  };
+
   const semEndereco = escolhidos.filter((c) => !c.cidade).length;
   const terminou = !!geradas && !!plano && geradas.length >= plano.carros.length;
 
@@ -290,7 +300,10 @@ export default function Extras() {
             <KpiCard value={`${plano.resumo.km.toLocaleString("pt-BR")} km`} label={medindo ? "Km (estimado, medindo o real)" : "Km rodados (soma dos carros)"} />
             <KpiCard value={brl(plano.resumo.valor)} label={plano.resumo.semPreco ? `Custo (${plano.resumo.semPreco} carro(s) sem preço)` : "Custo pela tabela"} alert={plano.resumo.semPreco > 0} />
           </div>
-          {medindo && <p className="texto-fraco" role="status" style={{ margin: "0 0 12px" }}>{medindo}</p>}
+          <div className="row" style={{ marginBottom: 14 }}>
+            <button type="button" className="ghost" onClick={exportar}>Exportar proposta (Excel)</button>
+            {medindo && <span className="texto-fraco" role="status">{medindo} Se exportar agora, parte do km sai como estimado.</span>}
+          </div>
           {plano.avisos.length > 0 && <div className="resumo-entrada" style={{ marginBottom: 14 }}>{plano.avisos.map((a) => <div key={a}>{a}</div>)}</div>}
 
           {plano.carros.map((c, i) => (
